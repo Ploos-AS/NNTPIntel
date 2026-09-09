@@ -7,28 +7,8 @@ from datetime import UTC, datetime
 from html.parser import HTMLParser
 from urllib import parse, request
 
-from nntpintel.storage import Storage
+from nntpintel.storage import SCHEMA_VERSION, Storage
 
-
-DISCOVERY_SQL = """
-CREATE TABLE IF NOT EXISTS discovery_sources (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    source_ref TEXT,
-    enabled INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_import_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS server_sources (
-    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-    source_id INTEGER NOT NULL REFERENCES discovery_sources(id) ON DELETE CASCADE,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    active INTEGER NOT NULL DEFAULT 1,
-    PRIMARY KEY(server_id, source_id)
-);
-"""
 
 MAX_SOURCE_BYTES = 1024 * 1024
 BUILTIN_SOURCES = {
@@ -81,11 +61,9 @@ def parse_seed(value: str) -> Seed:
 
 def ensure_discovery_schema(storage: Storage) -> None:
     with storage.connect() as conn:
-        conn.executescript(DISCOVERY_SQL)
-        columns = {row["name"] for row in conn.execute("PRAGMA table_info(server_sources)")}
-        if "active" not in columns:
-            conn.execute("ALTER TABLE server_sources ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
-        conn.commit()
+        row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+    if row is None or int(row["version"]) != SCHEMA_VERSION:
+        raise RuntimeError("discovery schema requires initialized Storage schema")
 
 
 def _server_id(storage: Storage, host: str) -> int | None:
