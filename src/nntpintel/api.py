@@ -154,6 +154,9 @@ class APIHandler(BaseHTTPRequestHandler):
         if path == "/web/propagation":
             from nntpintel.propagation_web import propagation_page
             self._send_html(propagation_page(self.storage)); return
+        if path == "/web/propagation/trends":
+            from nntpintel.propagation_trends_web import trends_page
+            self._send_html(trends_page(self.storage)); return
         if path.startswith("/web/propagation/"):
             from nntpintel.propagation_web import propagation_detail_page
             try: article_id = int(path.rsplit("/", 1)[1])
