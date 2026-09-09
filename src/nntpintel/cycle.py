@@ -252,7 +252,7 @@ def run_due_candidate_cycles(
             )
             success = True
             results.append({"source": source, "status": "success", "result": result})
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - scheduler boundary must isolate one source
             results.append(
                 {
                     "source": source,
