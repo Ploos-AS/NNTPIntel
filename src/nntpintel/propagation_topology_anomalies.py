@@ -122,11 +122,14 @@ def topology_anomalies(
             "topology_churn",
         )
     }
+    snapshots = history.get("snapshots") or []
+    snapshot_marker = str(snapshots[-1]["start"]) if snapshots else None
     return {
         "model": "inferred_topology_anomalies",
         "authoritative_topology": False,
         "disclaimer": history["disclaimer"],
         "days": days,
+        "snapshot_marker": snapshot_marker,
         "min_confidence_drop": min_confidence_drop,
         "min_churn_events": min_churn_events,
         "anomaly_count": len(anomalies),
