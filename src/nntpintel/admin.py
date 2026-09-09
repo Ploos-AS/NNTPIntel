@@ -5,7 +5,14 @@ import json
 from pathlib import Path
 
 from nntpintel.api import serve
-from nntpintel.discovery import import_seeds, list_sources, set_server_enabled
+from nntpintel.discovery import (
+    BUILTIN_SOURCES,
+    import_seeds,
+    list_sources,
+    refresh_builtin_source,
+    refresh_source,
+    set_server_enabled,
+)
 from nntpintel.scheduler import SchedulerConfig, run_forever, run_once
 from nntpintel.storage import Storage
 
@@ -23,10 +30,25 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--interval", type=int, default=900)
     add.add_argument("--timeout", type=float, default=10.0)
 
-    seed_import = sub.add_parser("import-seeds", help="import NNTP seeds from a text file")
+    seed_import = sub.add_parser("import-seeds", help="import NNTP candidates from a text file")
     seed_import.add_argument("file", type=Path)
     seed_import.add_argument("--source", required=True, help="stable source/provenance name")
     seed_import.add_argument("--source-ref", help="URL or other human-readable source reference")
+    seed_import.add_argument(
+        "--activate",
+        action="store_true",
+        help="enable newly discovered servers for probing; default is disabled candidates",
+    )
+
+    refresh = sub.add_parser("refresh-source", help="refresh a complete NNTP discovery source snapshot")
+    refresh.add_argument("--source", required=True)
+    refresh.add_argument("--url", required=True)
+    refresh.add_argument("--adapter", choices=["text", "open-nntp-html"], default="text")
+    refresh.add_argument("--activate", action="store_true")
+
+    builtin = sub.add_parser("refresh-builtin-source", help="refresh a curated NNTP discovery adapter")
+    builtin.add_argument("name", choices=sorted(BUILTIN_SOURCES))
+    builtin.add_argument("--activate", action="store_true")
 
     sub.add_parser("list-sources", help="list discovery sources and imported server counts")
 
@@ -72,7 +94,24 @@ def main(argv: list[str] | None = None) -> int:
             lines,
             source=args.source,
             source_ref=args.source_ref,
+            activate=args.activate,
         )
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "refresh-source":
+        result = refresh_source(
+            storage,
+            source=args.source,
+            source_ref=args.url,
+            adapter=args.adapter,
+            activate=args.activate,
+        )
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "refresh-builtin-source":
+        result = refresh_builtin_source(storage, args.name, activate=args.activate)
         print(json.dumps(result, sort_keys=True))
         return 0
 
