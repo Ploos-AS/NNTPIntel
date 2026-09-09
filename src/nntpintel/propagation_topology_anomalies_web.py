@@ -30,7 +30,7 @@ a{{color:#9fd3ff}}.cards{{display:grid;grid-template-columns:repeat(auto-fit,min
 table{{width:100%;border-collapse:collapse}}th,td{{text-align:left;padding:.65rem;border-bottom:1px solid #2d3944}}th,.muted{{color:#a8b5c2}}
 .warning{{border:1px solid #8a6d1d;background:#2a2412;padding:1rem;border-radius:.5rem}}
 </style></head><body><header><h1>NNTPIntel</h1></header><main>
-<p><a href="/web/propagation/topology">← Inferred topology</a></p>
+<p><a href="/web/propagation/topology">← Inferred topology</a> · <a href="/web/propagation/topology/incidents">Topology incidents</a></p>
 <h2>Topology anomalies</h2>
 <p class="warning"><strong>Inference only.</strong> {escape(data["disclaimer"])}</p>
 <div class="cards">
