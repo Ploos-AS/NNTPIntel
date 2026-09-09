@@ -131,14 +131,22 @@ def servers_page(storage: Storage) -> str:
     return _page("Servers", body)
 
 
+def _state_marker(item: dict) -> str:
+    state_class = "state-ok" if item["success"] else "state-bad"
+    state_text = "ok" if item["success"] else "fail"
+    observed_at = escape(str(item["observed_at"]))
+    return (
+        f'<span class="state {state_class}" '
+        f'title="{observed_at}: {state_text}"></span>'
+    )
+
+
 def _availability_visuals(server: dict) -> str:
     stats = server["availability"]
     observations = list(reversed(server["observations"]))
-    state_strip = "".join(
-        f'<span class="state {'state-ok' if item['success'] else 'state-bad'}" '
-        f'title="{escape(str(item["observed_at"]))}: {'ok' if item['success'] else 'fail'}"></span>'
-        for item in observations
-    ) or '<span class="muted">No availability samples yet.</span>'
+    state_strip = "".join(_state_marker(item) for item in observations)
+    if not state_strip:
+        state_strip = '<span class="muted">No availability samples yet.</span>'
 
     latency_values = [
         float(item["connect_ms"])
@@ -226,10 +234,32 @@ def server_detail_page(storage: Storage, server_id: int) -> str | None:
     cards = [
         ("Endpoints", len(server["endpoints"])),
         ("Observations", availability["sample_count"]),
-        ("Availability %", "" if availability["availability_percent"] is None else availability["availability_percent"]),
-        ("Average latency ms", "" if availability["average_latency_ms"] is None else availability["average_latency_ms"]),
-        ("Latest status", "ok" if latest and latest["success"] else "unknown" if latest is None else "fail"),
-        ("Latest latency ms", "" if latest is None or latest["connect_ms"] is None else latest["connect_ms"]),
+        (
+            "Availability %",
+            ""
+            if availability["availability_percent"] is None
+            else availability["availability_percent"],
+        ),
+        (
+            "Average latency ms",
+            ""
+            if availability["average_latency_ms"] is None
+            else availability["average_latency_ms"],
+        ),
+        (
+            "Latest status",
+            "ok"
+            if latest and latest["success"]
+            else "unknown"
+            if latest is None
+            else "fail",
+        ),
+        (
+            "Latest latency ms",
+            ""
+            if latest is None or latest["connect_ms"] is None
+            else latest["connect_ms"],
+        ),
     ]
     card_html = "".join(
         f'<div class="card"><div class="muted">{escape(str(label))}</div><div class="metric">{escape(str(value))}</div></div>'
