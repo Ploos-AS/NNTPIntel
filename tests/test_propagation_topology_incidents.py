@@ -12,14 +12,20 @@ from nntpintel.propagation_topology_incidents import (
 from nntpintel.storage import Storage
 
 
-def _anomaly_payload(at: str, *, include_signal: bool = True) -> dict:
+def _anomaly_payload(
+    marker: str,
+    *,
+    include_signal: bool = True,
+    severity: str = "high",
+    kind: str = "edge_reversal",
+) -> dict:
     anomalies = []
     if include_signal:
         anomalies.append(
             {
-                "at": at,
-                "kind": "edge_reversal",
-                "severity": "high",
+                "at": marker,
+                "kind": kind,
+                "severity": severity,
                 "source_server_id": 1,
                 "target_server_id": 2,
                 "source_host": "a.example.test",
@@ -28,24 +34,30 @@ def _anomaly_payload(at: str, *, include_signal: bool = True) -> dict:
         )
     return {
         "days": 30,
+        "snapshot_marker": marker,
         "authoritative_topology": False,
         "anomalies": anomalies,
     }
 
 
-def test_topology_incident_open_update_resolve(monkeypatch, tmp_path):
+def _storage(tmp_path):
     storage = Storage(tmp_path / "nntpintel.db")
     storage.ensure_endpoint("a.example.test")
     storage.ensure_endpoint("b.example.test")
+    return storage
+
+
+def test_critical_topology_incident_opens_immediately_and_recovers_stably(monkeypatch, tmp_path):
+    storage = _storage(tmp_path)
     now = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
+    marker1 = "2026-09-09T00:00:00+00:00"
 
     monkeypatch.setattr(
         "nntpintel.propagation_topology_incidents.topology_anomalies",
-        lambda storage: _anomaly_payload(now.isoformat()),
+        lambda storage: _anomaly_payload(marker1),
     )
     first = evaluate_topology_incidents(storage, now=now)
     assert first["created_count"] == 1
-    assert first["updated_count"] == 0
     incidents = list_topology_incidents(storage)
     assert len(incidents) == 1
     assert incidents[0]["kind"] == "topology_edge_reversal"
@@ -54,30 +66,109 @@ def test_topology_incident_open_update_resolve(monkeypatch, tmp_path):
     assert incidents[0]["authoritative_topology"] is False
     assert list_propagation_incidents(storage) == []
 
-    second = evaluate_topology_incidents(storage, now=now + timedelta(minutes=5))
-    assert second["created_count"] == 0
-    assert second["updated_count"] == 1
-    assert len(list_topology_incidents(storage)) == 1
-
+    # Re-evaluating the same snapshot must not count as fresh recovery evidence.
     monkeypatch.setattr(
         "nntpintel.propagation_topology_incidents.topology_anomalies",
-        lambda storage: _anomaly_payload(now.isoformat(), include_signal=False),
+        lambda storage: _anomaly_payload(marker1, include_signal=False),
     )
-    third = evaluate_topology_incidents(storage, now=now + timedelta(minutes=10))
-    assert third["resolved_count"] == 1
+    same = evaluate_topology_incidents(storage, now=now + timedelta(minutes=5))
+    assert same["resolved_count"] == 0
+    assert list_topology_incidents(storage)[0]["status"] == "open"
+
+    marker2 = "2026-09-10T00:00:00+00:00"
+    monkeypatch.setattr(
+        "nntpintel.propagation_topology_incidents.topology_anomalies",
+        lambda storage: _anomaly_payload(marker2, include_signal=False),
+    )
+    recovering = evaluate_topology_incidents(storage, now=now + timedelta(days=1))
+    assert recovering["resolved_count"] == 0
+    assert list_topology_incidents(storage)[0]["status"] == "recovering"
+
+    marker3 = "2026-09-11T00:00:00+00:00"
+    monkeypatch.setattr(
+        "nntpintel.propagation_topology_incidents.topology_anomalies",
+        lambda storage: _anomaly_payload(marker3, include_signal=False),
+    )
+    resolved_result = evaluate_topology_incidents(storage, now=now + timedelta(days=2))
+    assert resolved_result["resolved_count"] == 1
     resolved = list_topology_incidents(storage)
     assert resolved[0]["status"] == "resolved"
+    states = [item["state"] for item in resolved[0]["detail"]["evidence_history"]]
+    assert states == ["open", "recovering", "resolved"]
     assert list_topology_incidents(storage, include_resolved=False) == []
 
 
-def test_topology_incidents_api_and_web(monkeypatch, tmp_path):
-    storage = Storage(tmp_path / "nntpintel.db")
-    storage.ensure_endpoint("a.example.test")
-    storage.ensure_endpoint("b.example.test")
+def test_warning_requires_two_distinct_snapshots_before_open(monkeypatch, tmp_path):
+    storage = _storage(tmp_path)
     now = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
+    marker1 = "2026-09-09T00:00:00+00:00"
+
     monkeypatch.setattr(
         "nntpintel.propagation_topology_incidents.topology_anomalies",
-        lambda storage: _anomaly_payload(now.isoformat()),
+        lambda storage: _anomaly_payload(
+            marker1,
+            severity="medium",
+            kind="confidence_collapse",
+        ),
+    )
+    first = evaluate_topology_incidents(storage, now=now)
+    assert first["created_count"] == 0
+    assert first["pending_count"] == 1
+    assert list_topology_incidents(storage) == []
+
+    duplicate = evaluate_topology_incidents(storage, now=now + timedelta(minutes=5))
+    assert duplicate["created_count"] == 0
+    assert list_topology_incidents(storage) == []
+
+    marker2 = "2026-09-10T00:00:00+00:00"
+    monkeypatch.setattr(
+        "nntpintel.propagation_topology_incidents.topology_anomalies",
+        lambda storage: _anomaly_payload(
+            marker2,
+            severity="medium",
+            kind="confidence_collapse",
+        ),
+    )
+    second = evaluate_topology_incidents(storage, now=now + timedelta(days=1))
+    assert second["created_count"] == 1
+    incidents = list_topology_incidents(storage)
+    assert len(incidents) == 1
+    assert incidents[0]["kind"] == "topology_confidence_collapse"
+    assert incidents[0]["status"] == "open"
+    assert incidents[0]["detail"]["signal_streak"] == 2
+    assert len(incidents[0]["detail"]["evidence_history"]) == 2
+
+
+def test_one_off_warning_is_suppressed(monkeypatch, tmp_path):
+    storage = _storage(tmp_path)
+    now = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
+    marker1 = "2026-09-09T00:00:00+00:00"
+    monkeypatch.setattr(
+        "nntpintel.propagation_topology_incidents.topology_anomalies",
+        lambda storage: _anomaly_payload(
+            marker1,
+            severity="medium",
+            kind="edge_disappeared",
+        ),
+    )
+    evaluate_topology_incidents(storage, now=now)
+
+    marker2 = "2026-09-10T00:00:00+00:00"
+    monkeypatch.setattr(
+        "nntpintel.propagation_topology_incidents.topology_anomalies",
+        lambda storage: _anomaly_payload(marker2, include_signal=False),
+    )
+    evaluate_topology_incidents(storage, now=now + timedelta(days=1))
+    assert list_topology_incidents(storage) == []
+
+
+def test_topology_incidents_api_and_web(monkeypatch, tmp_path):
+    storage = _storage(tmp_path)
+    now = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
+    marker = "2026-09-09T00:00:00+00:00"
+    monkeypatch.setattr(
+        "nntpintel.propagation_topology_incidents.topology_anomalies",
+        lambda storage: _anomaly_payload(marker),
     )
     evaluate_topology_incidents(storage, now=now)
 
@@ -92,6 +183,7 @@ def test_topology_incidents_api_and_web(monkeypatch, tmp_path):
         assert len(payload) == 1
         assert payload[0]["kind"] == "topology_edge_reversal"
         assert payload[0]["authoritative_topology"] is False
+        assert payload[0]["detail"]["evidence_history"]
 
         with urlopen(f"{base}/web/propagation/topology/incidents", timeout=2) as response:
             html = response.read().decode("utf-8")
