@@ -32,8 +32,12 @@ def list_propagation_articles(storage: Storage, *, limit: int = 100) -> list[dic
             """
             SELECT pa.id, pa.message_id, pa.newsgroup, pa.article_date, pa.first_registered_at,
                    COUNT(po.id) AS observation_count,
-                   COUNT(DISTINCT CASE WHEN po.present = 1 THEN po.endpoint_id END) AS visible_endpoint_count,
-                   MIN(CASE WHEN po.present = 1 THEN po.observed_at END) AS first_visibility_at
+                   COUNT(DISTINCT CASE
+                       WHEN po.present = 1 AND po.error IS NULL AND po.response_code = 223
+                       THEN po.endpoint_id END) AS visible_endpoint_count,
+                   MIN(CASE
+                       WHEN po.present = 1 AND po.error IS NULL AND po.response_code = 223
+                       THEN po.observed_at END) AS first_visibility_at
             FROM propagation_articles pa
             LEFT JOIN propagation_observations po ON po.article_id = pa.id
             GROUP BY pa.id
@@ -62,7 +66,19 @@ def propagation_observation_history(storage: Storage, article_id: int, *, limit:
             """,
             (article_id, limit),
         ).fetchall()
-    return [dict(row) for row in rows]
+    result: list[dict] = []
+    for row in rows:
+        item = dict(row)
+        if item["error"] is not None:
+            item["state"] = "unknown"
+        elif item["response_code"] == 223 and item["present"]:
+            item["state"] = "present"
+        elif item["response_code"] == 430:
+            item["state"] = "absent"
+        else:
+            item["state"] = "unknown"
+        result.append(item)
+    return result
 
 
 def get_propagation_article(storage: Storage, article_id: int) -> dict | None:
