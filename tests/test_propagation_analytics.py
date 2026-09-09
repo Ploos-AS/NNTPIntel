@@ -48,9 +48,11 @@ def test_analytics_computes_delay_coverage_and_slowest_endpoints(tmp_path):
     assert analytics["endpoints"][0]["host"] == "news-c.example.test"
 
 
-def test_unknown_probe_result_is_not_persisted_as_absent(tmp_path):
+def test_unknown_probe_result_is_recorded_but_not_counted_as_absent_or_visible(tmp_path):
     storage = Storage(tmp_path / "nntpintel.db")
     endpoint_id = storage.ensure_endpoint("news.example.test")
+    message_id = "<unknown@example.test>"
+    create_campaign(storage, message_id, [endpoint_id], stop_after_visible=1)
 
     def fake_probe(host, message_id, **kwargs):
         return PresenceProbeResult(
@@ -65,15 +67,21 @@ def test_unknown_probe_result_is_not_persisted_as_absent(tmp_path):
             error="unexpected STAT status 480: 480 authentication required",
         )
 
-    result = probe_and_record_presence(
-        storage,
-        endpoint_id,
-        "<unknown@example.test>",
-        probe_func=fake_probe,
-    )
+    result = probe_and_record_presence(storage, endpoint_id, message_id, probe_func=fake_probe)
     assert result["error"] is not None
     with storage.connect() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM propagation_observations").fetchone()[0] == 0
+        row = conn.execute(
+            "SELECT present, response_code, error FROM propagation_observations"
+        ).fetchone()
+    assert row["present"] == 0
+    assert row["response_code"] == 480
+    assert row["error"] is not None
+
+    analytics = propagation_analytics(storage)
+    assert analytics["targeted_pair_count"] == 1
+    assert analytics["targeted_visible_pair_count"] == 0
+    assert analytics["target_coverage_percent"] == 0.0
+    assert analytics["sample_count"] == 0
 
 
 def test_propagation_analytics_api(tmp_path):
