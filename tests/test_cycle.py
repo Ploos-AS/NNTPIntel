@@ -1,6 +1,6 @@
 import pytest
 
-from nntpintel.cycle import run_candidate_cycle
+from nntpintel.cycle import list_cycle_runs, run_candidate_cycle
 from nntpintel.discovery import import_seeds
 from nntpintel.probe import ProbeObservation
 from nntpintel.storage import Storage
@@ -42,9 +42,12 @@ def test_candidate_cycle_refreshes_and_qualifies_small_batch_without_promotion(t
         refresh_func=_fake_refresh,
     )
 
+    assert result["run_id"] > 0
     assert result["source"] == "test-source"
+    assert result["status"] == "success"
     assert result["refresh"]["accepted"] == 3
     assert result["qualification_count"] == 2
+    assert result["classifications"] == {"reachable": 2}
     assert result["promotion_count"] == 0
     assert all(row["classification"] == "reachable" for row in result["qualifications"])
 
@@ -58,6 +61,19 @@ def test_candidate_cycle_refreshes_and_qualifies_small_batch_without_promotion(t
         ).fetchone()["count"]
     assert enabled == [0, 0, 0]
     assert qualification_count == 2
+
+    history = list_cycle_runs(storage)
+    assert len(history) == 1
+    assert history[0]["id"] == result["run_id"]
+    assert history[0]["source"] == "test-source"
+    assert history[0]["status"] == "success"
+    assert history[0]["added"] == 3
+    assert history[0]["missing"] == 0
+    assert history[0]["qualification_count"] == 2
+    assert history[0]["classifications"] == {"reachable": 2}
+    assert history[0]["promotion_count"] == 0
+    assert history[0]["started_at"]
+    assert history[0]["finished_at"]
 
 
 def test_candidate_cycle_does_not_requalify_rejected_candidate(tmp_path):
@@ -78,6 +94,46 @@ def test_candidate_cycle_does_not_requalify_rejected_candidate(tmp_path):
     hosts = {row["host"] for row in result["qualifications"]}
     assert "one.example.test" not in hosts
     assert hosts == {"two.example.test", "three.example.test"}
+
+
+def test_candidate_cycle_records_failed_run(tmp_path):
+    storage = Storage(tmp_path / "nntpintel.db")
+
+    def failing_refresh(*args, **kwargs):
+        raise RuntimeError("source unavailable")
+
+    with pytest.raises(RuntimeError, match="source unavailable"):
+        run_candidate_cycle(storage, "broken-source", refresh_func=failing_refresh)
+
+    history = list_cycle_runs(storage, source="broken-source")
+    assert len(history) == 1
+    assert history[0]["status"] == "failed"
+    assert history[0]["finished_at"]
+    assert "RuntimeError: source unavailable" in history[0]["error"]
+    assert history[0]["qualification_count"] == 0
+    assert history[0]["classifications"] == {}
+
+
+def test_cycle_history_filters_source_and_validates_limit(tmp_path):
+    storage = Storage(tmp_path / "nntpintel.db")
+    run_candidate_cycle(
+        storage,
+        "source-a",
+        limit=0,
+        refresh_func=_fake_refresh,
+    )
+    run_candidate_cycle(
+        storage,
+        "source-b",
+        limit=0,
+        refresh_func=_fake_refresh,
+    )
+
+    assert [row["source"] for row in list_cycle_runs(storage, source="source-a")] == ["source-a"]
+    with pytest.raises(ValueError, match="between 1 and 1000"):
+        list_cycle_runs(storage, limit=0)
+    with pytest.raises(ValueError, match="between 1 and 1000"):
+        list_cycle_runs(storage, limit=1001)
 
 
 def test_candidate_cycle_enforces_conservative_bounds(tmp_path):
