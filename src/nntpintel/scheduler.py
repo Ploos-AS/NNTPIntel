@@ -9,6 +9,7 @@ from nntpintel.groups import inventory_groups
 from nntpintel.probe import probe
 from nntpintel.propagation_campaigns import run_due_campaigns
 from nntpintel.propagation_incidents import evaluate_propagation_incidents
+from nntpintel.propagation_topology_incidents import evaluate_topology_incidents
 from nntpintel.storage import Storage
 
 
@@ -116,6 +117,7 @@ def run_once(storage: Storage, *, config: SchedulerConfig | None = None) -> int:
         for row in campaign_runs
     ):
         evaluate_propagation_incidents(storage)
+        evaluate_topology_incidents(storage)
     return completed
 
 
