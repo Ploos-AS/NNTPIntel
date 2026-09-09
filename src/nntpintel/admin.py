@@ -12,7 +12,7 @@ from nntpintel.candidates import (
     qualify_candidates,
     set_candidate_status,
 )
-from nntpintel.cycle import run_candidate_cycle
+from nntpintel.cycle import list_cycle_runs, run_candidate_cycle
 from nntpintel.discovery import (
     BUILTIN_SOURCES,
     import_seeds,
@@ -65,6 +65,10 @@ def build_parser() -> argparse.ArgumentParser:
     cycle.add_argument("name", choices=sorted(BUILTIN_SOURCES))
     cycle.add_argument("--limit", type=int, default=3)
     cycle.add_argument("--timeout", type=float, default=5.0)
+
+    cycle_runs = sub.add_parser("list-cycle-runs", help="list recorded candidate cycle history")
+    cycle_runs.add_argument("--source")
+    cycle_runs.add_argument("--limit", type=int, default=100)
 
     qualify = sub.add_parser("qualify-candidates", help="safely qualify disabled discovery candidates")
     qualify.add_argument("--limit", type=int, default=5)
@@ -163,6 +167,15 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
         print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "list-cycle-runs":
+        try:
+            rows = list_cycle_runs(storage, source=args.source, limit=args.limit)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        for row in rows:
+            print(json.dumps(row, sort_keys=True))
         return 0
 
     if args.command == "qualify-candidates":
