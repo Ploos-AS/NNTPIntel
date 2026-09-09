@@ -156,15 +156,14 @@ def probe_and_record_presence(
         starttls=bool(endpoint["starttls"]),
         timeout=timeout,
     )
-    if result.error is None and result.response_code in {223, 430}:
-        record_presence(
-            storage,
-            result.message_id,
-            endpoint_id,
-            observed_at=result.observed_at,
-            present=result.present,
-            method="stat",
-            response_code=result.response_code,
-            error=None,
-        )
+    record_presence(
+        storage,
+        result.message_id,
+        endpoint_id,
+        observed_at=result.observed_at,
+        present=result.present,
+        method="stat",
+        response_code=result.response_code,
+        error=result.error,
+    )
     return asdict(result)
