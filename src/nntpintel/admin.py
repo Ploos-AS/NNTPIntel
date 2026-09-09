@@ -5,7 +5,13 @@ import json
 from pathlib import Path
 
 from nntpintel.api import serve
-from nntpintel.candidates import list_candidate_qualifications, qualify_candidates
+from nntpintel.candidates import (
+    list_candidate_qualifications,
+    list_candidates,
+    promote_candidate,
+    qualify_candidates,
+    set_candidate_status,
+)
 from nntpintel.discovery import (
     BUILTIN_SOURCES,
     import_seeds,
@@ -60,6 +66,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="list recent candidate qualification results",
     )
     qualifications.add_argument("--limit", type=int, default=100)
+
+    sub.add_parser("list-candidates", help="list candidate status and qualification summary")
+
+    promote = sub.add_parser("promote-candidate", help="promote a qualified candidate into monitoring")
+    promote.add_argument("host")
+    promote.add_argument("--min-reachable", type=int, default=2)
+
+    decision = sub.add_parser("set-candidate-status", help="set candidate pending/rejected/ignored")
+    decision.add_argument("host")
+    decision.add_argument("status", choices=["pending", "rejected", "ignored"])
+    decision.add_argument("--note")
 
     sub.add_parser("list-sources", help="list discovery sources and imported server counts")
 
@@ -134,6 +151,27 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "list-candidate-qualifications":
         for row in list_candidate_qualifications(storage, limit=args.limit):
             print(json.dumps(row, sort_keys=True))
+        return 0
+
+    if args.command == "list-candidates":
+        for row in list_candidates(storage):
+            print(json.dumps(row, sort_keys=True))
+        return 0
+
+    if args.command == "promote-candidate":
+        try:
+            result = promote_candidate(storage, args.host, min_reachable=args.min_reachable)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "set-candidate-status":
+        try:
+            result = set_candidate_status(storage, args.host, args.status, note=args.note)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        print(json.dumps(result, sort_keys=True))
         return 0
 
     if args.command == "list-sources":
