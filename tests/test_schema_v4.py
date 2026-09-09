@@ -18,8 +18,13 @@ V5_TABLES = {
     "propagation_observations",
 }
 
+V6_TABLES = {
+    "propagation_campaigns",
+    "propagation_campaign_endpoints",
+}
 
-def test_fresh_storage_creates_consolidated_v5_schema(tmp_path):
+
+def test_fresh_storage_creates_consolidated_v6_schema(tmp_path):
     storage = Storage(tmp_path / "nntpintel.db")
     with storage.connect() as conn:
         version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
@@ -27,9 +32,10 @@ def test_fresh_storage_creates_consolidated_v5_schema(tmp_path):
             row["name"]
             for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
-    assert version == SCHEMA_VERSION == 5
+    assert version == SCHEMA_VERSION == 6
     assert V4_TABLES <= tables
     assert V5_TABLES <= tables
+    assert V6_TABLES <= tables
 
 
 def test_v3_upgrade_preserves_legacy_discovery_rows_and_adds_active(tmp_path):
@@ -71,15 +77,17 @@ def test_v3_upgrade_preserves_legacy_discovery_rows_and_adds_active(tmp_path):
         row = conn.execute(
             "SELECT server_id, source_id, active FROM server_sources"
         ).fetchone()
-    assert version == 5
+    assert version == 6
     assert "active" in columns
     assert dict(row) == {"server_id": server_id, "source_id": source_id, "active": 1}
 
 
-def test_v4_upgrade_creates_propagation_tables(tmp_path):
+def test_v4_upgrade_creates_propagation_and_campaign_tables(tmp_path):
     path = tmp_path / "nntpintel.db"
     storage = Storage(path)
     with storage.connect() as conn:
+        conn.execute("DROP TABLE propagation_campaign_endpoints")
+        conn.execute("DROP TABLE propagation_campaigns")
         conn.execute("DROP TABLE propagation_observations")
         conn.execute("DROP TABLE propagation_articles")
         conn.execute("UPDATE schema_version SET version = 4")
@@ -92,13 +100,14 @@ def test_v4_upgrade_creates_propagation_tables(tmp_path):
             row["name"]
             for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
-    assert version == 5
+    assert version == 6
     assert V5_TABLES <= tables
+    assert V6_TABLES <= tables
 
 
-def test_v5_schema_is_idempotent(tmp_path):
+def test_v6_schema_is_idempotent(tmp_path):
     path = tmp_path / "nntpintel.db"
     Storage(path)
     Storage(path)
     with sqlite3.connect(path) as conn:
-        assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == 5
+        assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == 6
