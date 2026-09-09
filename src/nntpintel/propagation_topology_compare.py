@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 from nntpintel.propagation_topology_export import topology_evidence_bundle
+from nntpintel.propagation_topology_semantic_changes import semantic_evidence_changes
 from nntpintel.storage import Storage
 
 
@@ -54,6 +55,7 @@ def compare_evidence_bundles(before: dict, after: dict) -> dict:
     after_fp = _fingerprint(after)
     unchanged = before_fp is not None and before_fp == after_fp
     changes = [] if unchanged else _diff_values(before_copy, after_copy)
+    semantic_changes = [] if unchanged else semantic_evidence_changes(before, after)
 
     sections = sorted(
         {
@@ -77,10 +79,13 @@ def compare_evidence_bundles(before: dict, after: dict) -> dict:
         "changed": not unchanged,
         "change_count": len(changes),
         "changed_sections": sections,
+        "semantic_change_count": len(semantic_changes),
+        "semantic_changes": semantic_changes,
         "changes": changes,
         "limitations": [
             "This diff compares bundle content; it does not prove a real-world NNTP topology change.",
             "generated_at is ignored so export timing alone does not create a change.",
+            "Semantic summaries are deterministic field interpretations, not operator-confirmed events.",
             "List changes are reported at list granularity in schema version 1.",
         ],
     }
