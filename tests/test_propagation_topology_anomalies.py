@@ -2,6 +2,8 @@ import json
 import threading
 from urllib.request import urlopen
 
+import pytest
+
 from nntpintel.api import make_server
 from nntpintel.propagation_topology_anomalies import topology_anomalies
 from nntpintel.storage import Storage
@@ -71,6 +73,14 @@ def test_topology_anomalies_detect_reversal_confidence_collapse_and_churn(monkey
     assert collapse["confidence_drop"] == 0.3
 
 
+def test_topology_anomalies_validates_thresholds(tmp_path):
+    storage = Storage(tmp_path / "nntpintel.db")
+    with pytest.raises(ValueError, match="min_confidence_drop"):
+        topology_anomalies(storage, min_confidence_drop=0)
+    with pytest.raises(ValueError, match="min_churn_events"):
+        topology_anomalies(storage, min_churn_events=0)
+
+
 def test_topology_anomalies_api_and_web(tmp_path):
     storage = Storage(tmp_path / "nntpintel.db")
     server = make_server(storage, "127.0.0.1", 0)
@@ -95,6 +105,10 @@ def test_topology_anomalies_api_and_web(tmp_path):
         assert "Inference only" in html
         assert "Confidence collapses" in html
         assert "Churn events" in html
+
+        with urlopen(f"{base}/web/propagation/topology", timeout=2) as response:
+            topology_html = response.read().decode("utf-8")
+        assert "/web/propagation/topology/anomalies" in topology_html
     finally:
         server.shutdown()
         server.server_close()
