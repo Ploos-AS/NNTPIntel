@@ -27,6 +27,13 @@ from nntpintel.discovery import (
     refresh_source,
     set_server_enabled,
 )
+from nntpintel.propagation_campaigns import (
+    create_campaign,
+    list_campaigns,
+    run_campaign,
+    run_due_campaigns,
+    set_campaign_enabled,
+)
 from nntpintel.scheduler import SchedulerConfig, run_forever, run_once
 from nntpintel.source_management import set_cycle_schedule_enabled, set_source_enabled
 from nntpintel.storage import Storage
@@ -131,6 +138,37 @@ def build_parser() -> argparse.ArgumentParser:
     server_state = sub.add_parser("set-server-enabled", help="enable or disable a discovered server")
     server_state.add_argument("host")
     server_state.add_argument("state", choices=["on", "off"])
+
+    campaign_create = sub.add_parser(
+        "create-propagation-campaign",
+        help="create a bounded persistent Message-ID propagation campaign",
+    )
+    campaign_create.add_argument("message_id")
+    campaign_create.add_argument("endpoint_ids", nargs="+", type=int)
+    campaign_create.add_argument("--interval", type=int, default=300)
+    campaign_create.add_argument("--timeout", type=float, default=5.0)
+    campaign_create.add_argument("--max-backoff", type=int, default=21600)
+    campaign_create.add_argument("--ttl", type=int, default=86400)
+    campaign_create.add_argument("--stop-after-visible", type=int)
+
+    campaign_list = sub.add_parser("list-propagation-campaigns", help="list propagation campaigns")
+    campaign_list.add_argument(
+        "--status", choices=["active", "completed", "expired", "disabled"]
+    )
+    campaign_list.add_argument("--limit", type=int, default=100)
+
+    campaign_state = sub.add_parser(
+        "set-propagation-campaign-enabled",
+        help="enable or disable a non-terminal propagation campaign",
+    )
+    campaign_state.add_argument("campaign_id", type=int)
+    campaign_state.add_argument("state", choices=["on", "off"])
+
+    campaign_run = sub.add_parser("run-propagation-campaign", help="run one propagation campaign now")
+    campaign_run.add_argument("campaign_id", type=int)
+
+    due_campaigns = sub.add_parser("run-due-propagation-campaigns", help="run active campaigns once")
+    due_campaigns.add_argument("--limit", type=int, default=2)
 
     sub.add_parser("list-endpoints", help="list configured endpoints")
     sub.add_parser("run-once", help="probe all currently due endpoints once")
@@ -304,6 +342,57 @@ def main(argv: list[str] | None = None) -> int:
         changed = set_server_enabled(storage, args.host, args.state == "on")
         if not changed:
             raise SystemExit(f"unknown server: {args.host}")
+        return 0
+
+    if args.command == "create-propagation-campaign":
+        try:
+            result = create_campaign(
+                storage,
+                args.message_id,
+                args.endpoint_ids,
+                interval_seconds=args.interval,
+                timeout_seconds=args.timeout,
+                max_backoff_seconds=args.max_backoff,
+                ttl_seconds=args.ttl,
+                stop_after_visible=args.stop_after_visible,
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "list-propagation-campaigns":
+        try:
+            rows = list_campaigns(storage, status=args.status, limit=args.limit)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        for row in rows:
+            print(json.dumps(row, sort_keys=True))
+        return 0
+
+    if args.command == "set-propagation-campaign-enabled":
+        try:
+            result = set_campaign_enabled(storage, args.campaign_id, args.state == "on")
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "run-propagation-campaign":
+        try:
+            result = run_campaign(storage, args.campaign_id)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "run-due-propagation-campaigns":
+        try:
+            rows = run_due_campaigns(storage, limit=args.limit)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        for row in rows:
+            print(json.dumps(row, sort_keys=True))
         return 0
 
     if args.command == "list-endpoints":
