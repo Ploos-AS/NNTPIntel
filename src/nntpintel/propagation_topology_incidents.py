@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from nntpintel.propagation_topology_anomalies import topology_anomalies
 from nntpintel.propagation_topology_impact import topology_impact
+from nntpintel.propagation_topology_quality import topology_data_quality
 from nntpintel.storage import Storage
 
 TOPOLOGY_INCIDENT_PREFIX = "topology_"
@@ -60,6 +61,33 @@ def _append_evidence(detail: dict, *, at: str, state: str, anomaly: dict | None)
     history.append({"at": at, "state": state, "anomaly": anomaly})
     detail["evidence_history"] = history[-MAX_EVIDENCE:]
     return detail
+
+
+def _evidence_level(server_quality: dict | None, global_quality_level: str) -> str:
+    if server_quality is None:
+        return "low"
+    freshness = str(server_quality["freshness"])
+    coverage = float(server_quality["valid_presence_coverage"])
+    if freshness == "fresh" and coverage >= 0.75 and global_quality_level in {"good", "usable"}:
+        return "high"
+    if freshness == "fresh" and coverage >= 0.5:
+        return "moderate"
+    if freshness in {"fresh", "stale"} and coverage > 0:
+        return "limited"
+    return "low"
+
+
+def _triage_priority_score(
+    *,
+    severity: str,
+    status: str,
+    evidence_level: str,
+    impact_score: float,
+) -> float:
+    severity_score = 70.0 if severity == "critical" else 40.0
+    evidence_bonus = {"high": 20.0, "moderate": 14.0, "limited": 7.0, "low": 0.0}[evidence_level]
+    status_adjustment = -10.0 if status == "recovering" else (-40.0 if status == "resolved" else 0.0)
+    return round(max(0.0, min(100.0, severity_score + evidence_bonus + 0.1 * impact_score + status_adjustment)), 1)
 
 
 def evaluate_topology_incidents(
@@ -241,9 +269,14 @@ def list_topology_incidents(
         raise ValueError("incident limit must be between 1 and 1000")
     resolved_clause = "" if include_resolved else "AND pi.resolved_at IS NULL"
     impact = topology_impact(storage)
+    quality = topology_data_quality(storage)
     impact_by_server = {
         int(item["server_id"]): float(item["impact_score"])
         for item in impact["nodes"]
+    }
+    quality_by_server = {
+        int(item["server_id"]): item
+        for item in quality["servers"]
     }
     with storage.connect() as conn:
         rows = conn.execute(
@@ -268,12 +301,33 @@ def list_topology_incidents(
             continue
         item["status"] = lifecycle_state if item["resolved_at"] is None else "resolved"
         item["impact_score"] = impact_by_server.get(int(item["server_id"]), 0.0)
+        server_quality = quality_by_server.get(int(item["server_id"]))
+        item["evidence_level"] = _evidence_level(server_quality, str(quality["quality_level"]))
+        item["quality_score"] = int(quality["quality_score"])
+        item["quality_level"] = str(quality["quality_level"])
+        item["valid_presence_coverage"] = (
+            float(server_quality["valid_presence_coverage"])
+            if server_quality is not None
+            else 0.0
+        )
+        item["freshness"] = (
+            str(server_quality["freshness"])
+            if server_quality is not None
+            else "no_valid_presence"
+        )
+        item["triage_priority_score"] = _triage_priority_score(
+            severity=str(item["severity"]),
+            status=str(item["status"]),
+            evidence_level=str(item["evidence_level"]),
+            impact_score=float(item["impact_score"]),
+        )
+        item["evidence_caution"] = item["evidence_level"] in {"limited", "low"}
         item["authoritative_topology"] = False
         result.append(item)
     result.sort(
         key=lambda item: (
             item["status"] == "resolved",
-            -float(item["impact_score"]),
+            -float(item["triage_priority_score"]),
             -int(item["id"]),
         )
     )
