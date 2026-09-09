@@ -4,7 +4,11 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 
 from nntpintel.propagation import normalize_message_id, propagation_summary
-from nntpintel.propagation_probe import PresenceProbeResult, probe_and_record_presence, stat_message_id
+from nntpintel.propagation_probe import (
+    PresenceProbeResult,
+    probe_and_record_presence,
+    stat_message_id,
+)
 from nntpintel.storage import Storage
 
 MIN_PROPAGATION_INTERVAL_SECONDS = 60
