@@ -112,6 +112,45 @@ def list_events(storage: Storage, *, limit: int = 100) -> list[dict]:
     )
 
 
+def list_server_observations(storage: Storage, server_id: int, *, limit: int = 100) -> list[dict]:
+    rows = _rows(
+        storage,
+        """
+        SELECT o.id, o.endpoint_id, e.port, e.transport, e.starttls,
+               o.observed_at, o.success, o.connect_ms, o.greeting_code,
+               o.greeting, o.posting_allowed, o.mode_reader_code,
+               o.mode_reader_response, o.capabilities_json, o.tls_json, o.error
+        FROM observations o
+        JOIN endpoints e ON e.id = o.endpoint_id
+        WHERE e.server_id = ?
+        ORDER BY o.observed_at DESC, o.id DESC
+        LIMIT ?
+        """,
+        (server_id, limit),
+    )
+    for row in rows:
+        row["capabilities"] = json.loads(row.pop("capabilities_json"))
+        row["tls"] = json.loads(row.pop("tls_json"))
+    return rows
+
+
+def list_server_events(storage: Storage, server_id: int, *, limit: int = 100) -> list[dict]:
+    return _rows(
+        storage,
+        """
+        SELECT ge.id, ge.endpoint_id, e.port, n.name AS newsgroup,
+               ge.observed_at, ge.event_type, ge.detail_json
+        FROM group_events ge
+        JOIN endpoints e ON e.id = ge.endpoint_id
+        JOIN newsgroups n ON n.id = ge.newsgroup_id
+        WHERE e.server_id = ?
+        ORDER BY ge.observed_at DESC, ge.id DESC
+        LIMIT ?
+        """,
+        (server_id, limit),
+    )
+
+
 def get_server(storage: Storage, server_id: int) -> dict | None:
     rows = _rows(
         storage,
@@ -126,6 +165,8 @@ def get_server(storage: Storage, server_id: int) -> dict | None:
         "SELECT * FROM endpoints WHERE server_id = ? ORDER BY port",
         (server_id,),
     )
+    server["observations"] = list_server_observations(storage, server_id, limit=100)
+    server["events"] = list_server_events(storage, server_id, limit=100)
     return server
 
 
@@ -159,6 +200,20 @@ class APIHandler(BaseHTTPRequestHandler):
             from nntpintel.web import servers_page
 
             self._send_html(servers_page(self.storage))
+            return
+        if path.startswith("/web/servers/"):
+            from nntpintel.web import server_detail_page
+
+            try:
+                server_id = int(path.rsplit("/", 1)[1])
+            except ValueError:
+                self._send_html("<h1>Not found</h1>", HTTPStatus.NOT_FOUND)
+                return
+            html = server_detail_page(self.storage, server_id)
+            if html is None:
+                self._send_html("<h1>Not found</h1>", HTTPStatus.NOT_FOUND)
+            else:
+                self._send_html(html)
             return
         if path == "/web/groups":
             from nntpintel.web import groups_page
