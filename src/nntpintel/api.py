@@ -17,6 +17,7 @@ from nntpintel.propagation_topology_cross_cluster import cross_cluster_intellige
 from nntpintel.propagation_topology_history import topology_history
 from nntpintel.propagation_topology_impact import topology_impact
 from nntpintel.propagation_topology_incidents import list_topology_incidents
+from nntpintel.propagation_topology_overview import topology_overview
 from nntpintel.propagation_topology_resilience import topology_resilience
 from nntpintel.propagation_topology_risk import topology_risk
 from nntpintel.propagation_trends import propagation_trends
@@ -197,6 +198,9 @@ class APIHandler(BaseHTTPRequestHandler):
         if path == "/web/propagation/topology/risk":
             from nntpintel.propagation_topology_risk_web import risk_page
             self._send_html(risk_page(self.storage)); return
+        if path == "/web/propagation/topology/overview":
+            from nntpintel.propagation_topology_overview_web import overview_page
+            self._send_html(overview_page(self.storage)); return
         if path.startswith("/web/propagation/"):
             from nntpintel.propagation_web import propagation_detail_page
             try: article_id = int(path.rsplit("/", 1)[1])
@@ -237,6 +241,7 @@ class APIHandler(BaseHTTPRequestHandler):
         if path == "/propagation/topology/cross-cluster": self._send_json(cross_cluster_intelligence(self.storage)); return
         if path == "/propagation/topology/resilience": self._send_json(topology_resilience(self.storage)); return
         if path == "/propagation/topology/risk": self._send_json(topology_risk(self.storage)); return
+        if path == "/propagation/topology/overview": self._send_json(topology_overview(self.storage)); return
         if path == "/propagation/articles": self._send_json(list_propagation_articles(self.storage)); return
         if path == "/propagation/campaigns": self._send_json(list_propagation_campaigns(self.storage)); return
         if path.startswith("/propagation/articles/"):
