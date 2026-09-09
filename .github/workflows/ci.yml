@@ -25,3 +25,31 @@ jobs:
         run: ruff check .
       - name: Tests
         run: pytest -q
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: nntpintel
+          POSTGRES_USER: nntpintel
+          POSTGRES_PASSWORD: nntpintel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nntpintel -d nntpintel"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      NNTPINTEL_DATABASE_URL: postgresql://nntpintel:nntpintel@127.0.0.1:5432/nntpintel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install PostgreSQL support
+        run: python -m pip install -e '.[postgres]'
+      - name: Qualify PostgreSQL migrations and partitioned schema
+        run: python tools/qualify_postgres.py
