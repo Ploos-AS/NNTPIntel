@@ -5,8 +5,25 @@ from nntpintel.propagation_topology_incidents import list_topology_incidents
 from nntpintel.propagation_topology_risk import topology_risk
 from nntpintel.storage import Storage
 
+VALID_KINDS = {
+    "incident",
+    "server_risk",
+    "community",
+    "inferred_edge",
+    "server_evidence",
+}
 
-def topology_conclusions(storage: Storage) -> dict:
+
+def topology_conclusions(
+    storage: Storage,
+    *,
+    kind: str | None = None,
+    query: str | None = None,
+    conclusion_ref: str | None = None,
+) -> dict:
+    if kind is not None and kind not in VALID_KINDS:
+        raise ValueError("invalid conclusion kind")
+
     evidence = topology_evidence(storage)
     risk = topology_risk(storage)
     incidents = list_topology_incidents(storage)
@@ -85,14 +102,36 @@ def topology_conclusions(storage: Storage) -> dict:
     for item in rows:
         counts[item["kind"]] = counts.get(item["kind"], 0) + 1
 
+    filtered = rows
+    if kind is not None:
+        filtered = [item for item in filtered if item["kind"] == kind]
+    if conclusion_ref:
+        ref = conclusion_ref.strip().lower()
+        filtered = [item for item in filtered if ref in str(item["conclusion_ref"]).lower()]
+    if query:
+        needle = query.strip().lower()
+        filtered = [
+            item
+            for item in filtered
+            if needle in str(item["label"]).lower()
+            or needle in str(item["summary"]).lower()
+            or needle in str(item["conclusion_ref"]).lower()
+        ]
+
     return {
         "model": "inferred_topology_explainable_conclusion_index",
         "authoritative_topology": False,
         "disclaimer": (
             "This index lists explainable NNTPIntel conclusions and evidence references. "
-            "It is a navigation surface, not an additional inference or scoring model."
+            "Filtering changes navigation only; it is not an additional inference or scoring model."
         ),
-        "conclusion_count": len(rows),
+        "conclusion_count": len(filtered),
+        "unfiltered_conclusion_count": len(rows),
         "counts_by_kind": counts,
-        "conclusions": rows,
+        "filters": {
+            "kind": kind,
+            "query": query,
+            "conclusion_ref": conclusion_ref,
+        },
+        "conclusions": filtered,
     }
