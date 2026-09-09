@@ -66,6 +66,8 @@ def topology_communities(storage: Storage) -> dict:
                 "average_edge_confidence": avg_confidence,
                 "average_impact_score": avg_impact,
                 "max_impact_score": round(max_impact, 1),
+                "open_incident_count": 0,
+                "affected_server_count": 0,
                 "servers": [
                     {
                         "server_id": item,
@@ -77,8 +79,27 @@ def topology_communities(storage: Storage) -> dict:
             }
         )
 
+    from nntpintel.propagation_topology_incidents import list_topology_incidents
+
+    incidents = list_topology_incidents(storage, include_resolved=False)
+    incident_servers: dict[int, set[int]] = defaultdict(set)
+    incident_counts: dict[int, int] = defaultdict(int)
+    for incident in incidents:
+        server_id = int(incident["server_id"])
+        community_id = assigned.get(server_id)
+        if community_id is None:
+            continue
+        incident_counts[community_id] += 1
+        incident_servers[community_id].add(server_id)
+
+    for community in communities:
+        community_id = int(community["community_id"])
+        community["open_incident_count"] = incident_counts[community_id]
+        community["affected_server_count"] = len(incident_servers[community_id])
+
     communities.sort(
         key=lambda item: (
+            -item["open_incident_count"],
             -item["server_count"],
             -item["max_impact_score"],
             item["servers"][0]["host"] if item["servers"] else "",
@@ -94,6 +115,9 @@ def topology_communities(storage: Storage) -> dict:
         ),
         "community_count": len(communities),
         "isolated_server_count": sum(1 for item in communities if item["server_count"] == 1),
+        "communities_with_open_incidents": sum(
+            1 for item in communities if item["open_incident_count"] > 0
+        ),
         "communities": communities,
         "server_community": {str(server_id): community_id for server_id, community_id in assigned.items()},
     }
