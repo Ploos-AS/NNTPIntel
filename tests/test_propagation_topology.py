@@ -1,7 +1,11 @@
+import json
+import threading
 from datetime import UTC, datetime, timedelta
+from urllib.request import urlopen
 
 import pytest
 
+from nntpintel.api import make_server
 from nntpintel.propagation import record_presence
 from nntpintel.propagation_campaigns import create_campaign
 from nntpintel.propagation_topology import inferred_propagation_topology
@@ -30,13 +34,17 @@ def _record_pair(storage, first, second, index, delay_seconds):
     )
 
 
-def test_topology_infers_repeated_precedence_without_claiming_peering(tmp_path):
-    storage = Storage(tmp_path / "nntpintel.db")
+def _topology_storage(tmp_path):
+    storage = Storage(tmp_path / "topology.db")
     early = storage.ensure_endpoint("early.example.test")
     late = storage.ensure_endpoint("late.example.test")
-
     for index, delay in enumerate((30, 40, 50), start=1):
         _record_pair(storage, early, late, index, delay)
+    return storage
+
+
+def test_topology_infers_repeated_precedence_without_claiming_peering(tmp_path):
+    storage = _topology_storage(tmp_path)
 
     topology = inferred_propagation_topology(storage)
     assert topology["authoritative_topology"] is False
@@ -98,3 +106,31 @@ def test_topology_validates_thresholds(tmp_path):
         inferred_propagation_topology(storage, min_samples=0)
     with pytest.raises(ValueError, match="min_confidence"):
         inferred_propagation_topology(storage, min_confidence=0.4)
+
+
+def test_topology_api_and_web(tmp_path):
+    storage = _topology_storage(tmp_path)
+    server = make_server(storage, "127.0.0.1", 0)
+    host, port = server.server_address
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://{host}:{port}"
+    try:
+        with urlopen(f"{base}/propagation/topology", timeout=2) as response:
+            payload = json.load(response)
+        assert payload["authoritative_topology"] is False
+        assert payload["edge_count"] == 1
+        assert payload["edges"][0]["source_host"] == "early.example.test"
+        assert payload["edges"][0]["target_host"] == "late.example.test"
+
+        with urlopen(f"{base}/web/propagation/topology", timeout=2) as response:
+            html = response.read().decode("utf-8")
+        assert "Inferred propagation topology" in html
+        assert "Inference only" in html
+        assert "early.example.test" in html
+        assert "late.example.test" in html
+        assert "Observed precedence edges" in html
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
