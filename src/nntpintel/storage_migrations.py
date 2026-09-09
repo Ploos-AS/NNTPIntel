@@ -151,6 +151,38 @@ POSTGRES_MIGRATIONS = (
             ON propagation_observations(endpoint_id, observed_at DESC);
         """,
     ),
+    PostgresMigration(
+        3,
+        "server availability and latency rollups",
+        """
+        CREATE TABLE IF NOT EXISTS server_observation_rollups (
+            server_id BIGINT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+            resolution TEXT NOT NULL CHECK (resolution IN ('hour', 'day')),
+            bucket_start TIMESTAMPTZ NOT NULL,
+            observation_count BIGINT NOT NULL,
+            success_count BIGINT NOT NULL,
+            failure_count BIGINT NOT NULL,
+            availability_ratio DOUBLE PRECISION,
+            connect_ms_count BIGINT NOT NULL,
+            connect_ms_avg DOUBLE PRECISION,
+            connect_ms_min DOUBLE PRECISION,
+            connect_ms_max DOUBLE PRECISION,
+            generated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(server_id, resolution, bucket_start),
+            CHECK (observation_count >= 0),
+            CHECK (success_count >= 0),
+            CHECK (failure_count >= 0),
+            CHECK (connect_ms_count >= 0),
+            CHECK (success_count + failure_count = observation_count),
+            CHECK (availability_ratio IS NULL OR (availability_ratio >= 0 AND availability_ratio <= 1))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_server_observation_rollups_resolution_time
+            ON server_observation_rollups(resolution, bucket_start DESC);
+        CREATE INDEX IF NOT EXISTS idx_server_observation_rollups_server_time
+            ON server_observation_rollups(server_id, bucket_start DESC);
+        """,
+    ),
 )
 
 
