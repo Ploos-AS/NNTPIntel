@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 
 _ALLOWED_RESOLUTIONS = {"hour", "day"}
@@ -18,7 +18,7 @@ class RollupResult:
 def _utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         raise ValueError("rollup bounds must be timezone-aware")
-    return value.astimezone(timezone.utc)
+    return value.astimezone(UTC)
 
 
 def rebuild_server_observation_rollups(
