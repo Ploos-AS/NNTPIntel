@@ -69,7 +69,7 @@ def test_trends_requires_three_samples_before_lagging(tmp_path):
     assert slow_row["lagging"] is False
 
 
-def test_propagation_trends_api(tmp_path):
+def test_propagation_trends_api_and_web(tmp_path):
     storage = _build_trend_fixture(tmp_path)
     server = make_server(storage, "127.0.0.1", 0)
     host, port = server.server_address
@@ -81,6 +81,14 @@ def test_propagation_trends_api(tmp_path):
         assert set(payload["windows"]) == {"24h", "7d", "30d"}
         assert payload["lagging_min_samples"] == 3
         assert payload["lagging_min_delta_seconds"] == 30.0
+
+        with urlopen(f"http://{host}:{port}/web/propagation/trends", timeout=2) as response:
+            html = response.read().decode("utf-8")
+        assert "Propagation trends" in html
+        assert "7-day server trend" in html
+        assert "30-day daily history" in html
+        assert "slow.example.test" in html
+        assert "lagging" in html
     finally:
         server.shutdown()
         server.server_close()
