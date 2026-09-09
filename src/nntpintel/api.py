@@ -9,6 +9,7 @@ from nntpintel.candidate_observability import list_candidate_observability
 from nntpintel.candidates import list_candidate_qualifications
 from nntpintel.cycle import list_cycle_runs
 from nntpintel.propagation_analytics import propagation_analytics
+from nntpintel.propagation_trends import propagation_trends
 from nntpintel.propagation_view import (
     get_propagation_article,
     list_propagation_articles,
@@ -24,112 +25,54 @@ def _rows(storage: Storage, query: str, params: tuple = ()) -> list[dict]:
 
 
 def list_servers(storage: Storage) -> list[dict]:
-    return _rows(
-        storage,
-        """
-        SELECT s.id, s.host, s.enabled, s.created_at,
-               COUNT(e.id) AS endpoint_count
-        FROM servers s
-        LEFT JOIN endpoints e ON e.server_id = s.id
-        GROUP BY s.id
-        ORDER BY s.host
-        """,
-    )
+    return _rows(storage, """
+        SELECT s.id, s.host, s.enabled, s.created_at, COUNT(e.id) AS endpoint_count
+        FROM servers s LEFT JOIN endpoints e ON e.server_id = s.id
+        GROUP BY s.id ORDER BY s.host
+    """)
 
 
 def list_endpoints(storage: Storage) -> list[dict]:
-    return _rows(
-        storage,
-        """
-        SELECT e.*, s.host
-        FROM endpoints e
-        JOIN servers s ON s.id = e.server_id
+    return _rows(storage, """
+        SELECT e.*, s.host FROM endpoints e JOIN servers s ON s.id = e.server_id
         ORDER BY s.host, e.port
-        """,
-    )
+    """)
 
 
 def list_groups(storage: Storage) -> list[dict]:
-    return _rows(
-        storage,
-        """
-        SELECT n.id, n.name, h.name AS hierarchy,
-               n.first_seen_at, n.last_seen_at,
-               (
-                   SELECT gs.high_water FROM group_snapshots gs
-                   WHERE gs.newsgroup_id = n.id
-                   ORDER BY gs.observed_at DESC, gs.id DESC LIMIT 1
-               ) AS high_water,
-               (
-                   SELECT gs.low_water FROM group_snapshots gs
-                   WHERE gs.newsgroup_id = n.id
-                   ORDER BY gs.observed_at DESC, gs.id DESC LIMIT 1
-               ) AS low_water,
-               (
-                   SELECT gs.posting_status FROM group_snapshots gs
-                   WHERE gs.newsgroup_id = n.id
-                   ORDER BY gs.observed_at DESC, gs.id DESC LIMIT 1
-               ) AS posting_status,
-               (
-                   SELECT gs.description FROM group_snapshots gs
-                   WHERE gs.newsgroup_id = n.id
-                   ORDER BY gs.observed_at DESC, gs.id DESC LIMIT 1
-               ) AS description
-        FROM newsgroups n
-        JOIN hierarchies h ON h.id = n.hierarchy_id
-        ORDER BY n.name
-        """,
-    )
+    return _rows(storage, """
+        SELECT n.id, n.name, h.name AS hierarchy, n.first_seen_at, n.last_seen_at,
+               (SELECT gs.high_water FROM group_snapshots gs WHERE gs.newsgroup_id=n.id ORDER BY gs.observed_at DESC, gs.id DESC LIMIT 1) AS high_water,
+               (SELECT gs.low_water FROM group_snapshots gs WHERE gs.newsgroup_id=n.id ORDER BY gs.observed_at DESC, gs.id DESC LIMIT 1) AS low_water,
+               (SELECT gs.posting_status FROM group_snapshots gs WHERE gs.newsgroup_id=n.id ORDER BY gs.observed_at DESC, gs.id DESC LIMIT 1) AS posting_status,
+               (SELECT gs.description FROM group_snapshots gs WHERE gs.newsgroup_id=n.id ORDER BY gs.observed_at DESC, gs.id DESC LIMIT 1) AS description
+        FROM newsgroups n JOIN hierarchies h ON h.id=n.hierarchy_id ORDER BY n.name
+    """)
 
 
 def list_hierarchies(storage: Storage) -> list[dict]:
-    return _rows(
-        storage,
-        """
-        SELECT h.id, h.name, h.first_seen_at, h.last_seen_at,
-               COUNT(n.id) AS group_count
-        FROM hierarchies h
-        LEFT JOIN newsgroups n ON n.hierarchy_id = h.id
-        GROUP BY h.id
-        ORDER BY h.name
-        """,
-    )
+    return _rows(storage, """
+        SELECT h.id,h.name,h.first_seen_at,h.last_seen_at,COUNT(n.id) AS group_count
+        FROM hierarchies h LEFT JOIN newsgroups n ON n.hierarchy_id=h.id
+        GROUP BY h.id ORDER BY h.name
+    """)
 
 
 def list_events(storage: Storage, *, limit: int = 100) -> list[dict]:
-    return _rows(
-        storage,
-        """
-        SELECT ge.id, ge.endpoint_id, s.host, e.port,
-               n.name AS newsgroup, ge.observed_at,
-               ge.event_type, ge.detail_json
-        FROM group_events ge
-        JOIN endpoints e ON e.id = ge.endpoint_id
-        JOIN servers s ON s.id = e.server_id
-        JOIN newsgroups n ON n.id = ge.newsgroup_id
-        ORDER BY ge.observed_at DESC, ge.id DESC
-        LIMIT ?
-        """,
-        (limit,),
-    )
+    return _rows(storage, """
+        SELECT ge.id,ge.endpoint_id,s.host,e.port,n.name AS newsgroup,ge.observed_at,ge.event_type,ge.detail_json
+        FROM group_events ge JOIN endpoints e ON e.id=ge.endpoint_id JOIN servers s ON s.id=e.server_id JOIN newsgroups n ON n.id=ge.newsgroup_id
+        ORDER BY ge.observed_at DESC, ge.id DESC LIMIT ?
+    """, (limit,))
 
 
 def list_server_observations(storage: Storage, server_id: int, *, limit: int = 100) -> list[dict]:
-    rows = _rows(
-        storage,
-        """
-        SELECT o.id, o.endpoint_id, e.port, e.transport, e.starttls,
-               o.observed_at, o.success, o.connect_ms, o.greeting_code,
-               o.greeting, o.posting_allowed, o.mode_reader_code,
-               o.mode_reader_response, o.capabilities_json, o.tls_json, o.error
-        FROM observations o
-        JOIN endpoints e ON e.id = o.endpoint_id
-        WHERE e.server_id = ?
-        ORDER BY o.observed_at DESC, o.id DESC
-        LIMIT ?
-        """,
-        (server_id, limit),
-    )
+    rows = _rows(storage, """
+        SELECT o.id,o.endpoint_id,e.port,e.transport,e.starttls,o.observed_at,o.success,o.connect_ms,o.greeting_code,
+               o.greeting,o.posting_allowed,o.mode_reader_code,o.mode_reader_response,o.capabilities_json,o.tls_json,o.error
+        FROM observations o JOIN endpoints e ON e.id=o.endpoint_id
+        WHERE e.server_id=? ORDER BY o.observed_at DESC,o.id DESC LIMIT ?
+    """, (server_id, limit))
     for row in rows:
         row["capabilities"] = json.loads(row.pop("capabilities_json"))
         row["tls"] = json.loads(row.pop("tls_json"))
@@ -137,20 +80,11 @@ def list_server_observations(storage: Storage, server_id: int, *, limit: int = 1
 
 
 def list_server_events(storage: Storage, server_id: int, *, limit: int = 100) -> list[dict]:
-    return _rows(
-        storage,
-        """
-        SELECT ge.id, ge.endpoint_id, e.port, n.name AS newsgroup,
-               ge.observed_at, ge.event_type, ge.detail_json
-        FROM group_events ge
-        JOIN endpoints e ON e.id = ge.endpoint_id
-        JOIN newsgroups n ON n.id = ge.newsgroup_id
-        WHERE e.server_id = ?
-        ORDER BY ge.observed_at DESC, ge.id DESC
-        LIMIT ?
-        """,
-        (server_id, limit),
-    )
+    return _rows(storage, """
+        SELECT ge.id,ge.endpoint_id,e.port,n.name AS newsgroup,ge.observed_at,ge.event_type,ge.detail_json
+        FROM group_events ge JOIN endpoints e ON e.id=ge.endpoint_id JOIN newsgroups n ON n.id=ge.newsgroup_id
+        WHERE e.server_id=? ORDER BY ge.observed_at DESC,ge.id DESC LIMIT ?
+    """, (server_id, limit))
 
 
 def server_availability(observations: list[dict]) -> dict:
@@ -164,36 +98,25 @@ def server_availability(observations: list[dict]) -> dict:
     for item in ordered:
         current = bool(item["success"])
         if previous is not None and current != previous:
-            transitions.append({
-                "observed_at": item["observed_at"],
-                "endpoint_id": item["endpoint_id"],
-                "port": item["port"],
-                "event": "recovered" if current else "failed",
-            })
+            transitions.append({"observed_at": item["observed_at"], "endpoint_id": item["endpoint_id"], "port": item["port"], "event": "recovered" if current else "failed"})
         previous = current
-    latency_series = [
-        {"observed_at": item["observed_at"], "endpoint_id": item["endpoint_id"], "port": item["port"], "connect_ms": item["connect_ms"]}
-        for item in ordered if item["connect_ms"] is not None
-    ]
+    latency_series = [{"observed_at": item["observed_at"], "endpoint_id": item["endpoint_id"], "port": item["port"], "connect_ms": item["connect_ms"]} for item in ordered if item["connect_ms"] is not None]
     return {
-        "sample_count": total,
-        "success_count": successes,
-        "failure_count": failures,
+        "sample_count": total, "success_count": successes, "failure_count": failures,
         "availability_percent": round((successes / total) * 100, 2) if total else None,
         "average_latency_ms": round(sum(latencies) / len(latencies), 2) if latencies else None,
         "min_latency_ms": min(latencies) if latencies else None,
         "max_latency_ms": max(latencies) if latencies else None,
-        "transitions": transitions,
-        "latency_series": latency_series,
+        "transitions": transitions, "latency_series": latency_series,
     }
 
 
 def get_server(storage: Storage, server_id: int) -> dict | None:
-    rows = _rows(storage, "SELECT id, host, enabled, created_at FROM servers WHERE id = ?", (server_id,))
+    rows = _rows(storage, "SELECT id,host,enabled,created_at FROM servers WHERE id=?", (server_id,))
     if not rows:
         return None
     server = rows[0]
-    server["endpoints"] = _rows(storage, "SELECT * FROM endpoints WHERE server_id = ? ORDER BY port", (server_id,))
+    server["endpoints"] = _rows(storage, "SELECT * FROM endpoints WHERE server_id=? ORDER BY port", (server_id,))
     server["observations"] = list_server_observations(storage, server_id, limit=100)
     server["events"] = list_server_events(storage, server_id, limit=100)
     server["availability"] = server_availability(server["observations"])
@@ -205,19 +128,11 @@ class APIHandler(BaseHTTPRequestHandler):
 
     def _send_json(self, payload: object, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(payload, sort_keys=True).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self.send_response(status); self.send_header("Content-Type", "application/json; charset=utf-8"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
 
     def _send_html(self, html: str, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = html.encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self.send_response(status); self.send_header("Content-Type", "text/html; charset=utf-8"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -241,18 +156,14 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_html(propagation_page(self.storage)); return
         if path.startswith("/web/propagation/"):
             from nntpintel.propagation_web import propagation_detail_page
-            try:
-                article_id = int(path.rsplit("/", 1)[1])
-            except ValueError:
-                self._send_html("<h1>Not found</h1>", HTTPStatus.NOT_FOUND); return
+            try: article_id = int(path.rsplit("/", 1)[1])
+            except ValueError: self._send_html("<h1>Not found</h1>", HTTPStatus.NOT_FOUND); return
             html = propagation_detail_page(self.storage, article_id)
             self._send_html(html if html is not None else "<h1>Not found</h1>", HTTPStatus.OK if html is not None else HTTPStatus.NOT_FOUND); return
         if path.startswith("/web/servers/"):
             from nntpintel.web import server_detail_page
-            try:
-                server_id = int(path.rsplit("/", 1)[1])
-            except ValueError:
-                self._send_html("<h1>Not found</h1>", HTTPStatus.NOT_FOUND); return
+            try: server_id = int(path.rsplit("/", 1)[1])
+            except ValueError: self._send_html("<h1>Not found</h1>", HTTPStatus.NOT_FOUND); return
             html = server_detail_page(self.storage, server_id)
             self._send_html(html if html is not None else "<h1>Not found</h1>", HTTPStatus.OK if html is not None else HTTPStatus.NOT_FOUND); return
         if path == "/web/groups":
@@ -272,20 +183,17 @@ class APIHandler(BaseHTTPRequestHandler):
         if path == "/candidate-qualifications": self._send_json(list_candidate_qualifications(self.storage)); return
         if path == "/cycle-runs": self._send_json(list_cycle_runs(self.storage)); return
         if path == "/propagation/analytics": self._send_json(propagation_analytics(self.storage)); return
+        if path == "/propagation/trends": self._send_json(propagation_trends(self.storage)); return
         if path == "/propagation/articles": self._send_json(list_propagation_articles(self.storage)); return
         if path == "/propagation/campaigns": self._send_json(list_propagation_campaigns(self.storage)); return
         if path.startswith("/propagation/articles/"):
-            try:
-                article_id = int(path.rsplit("/", 1)[1])
-            except ValueError:
-                self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND); return
+            try: article_id = int(path.rsplit("/", 1)[1])
+            except ValueError: self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND); return
             article = get_propagation_article(self.storage, article_id)
             self._send_json(article if article is not None else {"error": "not found"}, HTTPStatus.OK if article is not None else HTTPStatus.NOT_FOUND); return
         if path.startswith("/servers/"):
-            try:
-                server_id = int(path.rsplit("/", 1)[1])
-            except ValueError:
-                self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND); return
+            try: server_id = int(path.rsplit("/", 1)[1])
+            except ValueError: self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND); return
             server = get_server(self.storage, server_id)
             self._send_json(server if server is not None else {"error": "not found"}, HTTPStatus.OK if server is not None else HTTPStatus.NOT_FOUND); return
         self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
@@ -301,7 +209,5 @@ def make_server(storage: Storage, host: str = "127.0.0.1", port: int = 8080) -> 
 
 def serve(storage: Storage, *, host: str = "127.0.0.1", port: int = 8080) -> None:
     server = make_server(storage, host, port)
-    try:
-        server.serve_forever()
-    finally:
-        server.server_close()
+    try: server.serve_forever()
+    finally: server.server_close()
