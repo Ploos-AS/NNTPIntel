@@ -250,7 +250,7 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_html(servers_page(self.storage))
             return
         if path == "/web/candidates":
-            from nntpintel.web import candidates_page
+            from nntpintel.candidate_web import candidates_page
 
             self._send_html(candidates_page(self.storage))
             return
