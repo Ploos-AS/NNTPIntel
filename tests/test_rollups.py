@@ -17,7 +17,7 @@ class FakeConnection:
 
     def execute(self, sql, params=None):
         self.calls.append((" ".join(sql.split()), params))
-        if sql.lstrip().startswith("INSERT INTO server_observation_rollups"):
+        if "INSERT INTO server_observation_rollups" in sql:
             return FakeResult(rowcount=3)
         return FakeResult()
 
@@ -67,8 +67,10 @@ def test_rollup_rebuild_is_bounded_and_idempotent_by_replace():
     insert_sql, insert_params = conn.calls[1]
     assert delete_sql.startswith("DELETE FROM server_observation_rollups")
     assert delete_params == ("hour", start, end)
-    assert insert_sql.startswith("INSERT INTO server_observation_rollups")
+    assert insert_sql.startswith("WITH scoped AS")
+    assert "INSERT INTO server_observation_rollups" in insert_sql
     assert "FROM observations o JOIN endpoints e" in insert_sql
     assert "o.observed_at >= %s" in insert_sql
     assert "o.observed_at < %s" in insert_sql
-    assert insert_params == ("hour", "hour", start, end, "hour")
+    assert "GROUP BY server_id, bucket_start" in insert_sql
+    assert insert_params == ("hour", start, end, "hour")
