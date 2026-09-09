@@ -104,6 +104,7 @@ def topology_risk(storage: Storage) -> dict:
                 "community_id": community_by_server.get(server_id),
                 "risk_score": risk_score,
                 "risk_level": _risk_level(risk_score),
+                "evidence_ref": f"server:{server_id}",
                 "evidence_level": evidence_level,
                 "evidence_quality_score": int(quality["quality_score"]),
                 "evidence_coverage": round(coverage, 3),
@@ -164,6 +165,7 @@ def topology_risk(storage: Storage) -> dict:
                 "community_id": community_id,
                 "risk_score": risk_score,
                 "risk_level": _risk_level(risk_score),
+                "evidence_refs": [str(item["evidence_ref"]) for item in members],
                 "evidence_level": community_evidence,
                 "risk_score_quality_adjusted": False,
                 "server_count": int(community["server_count"]),
@@ -187,6 +189,7 @@ def topology_risk(storage: Storage) -> dict:
             "incidents, impact, resilience, communities, and gateway observations. Evidence quality is "
             "reported separately and never increases or decreases the risk score."
         ),
+        "evidence_model": "inferred_topology_evidence_provenance",
         "incident_scope": cross_cluster["incident_scope"],
         "data_quality_score": int(quality["quality_score"]),
         "data_quality_level": quality["quality_level"],
