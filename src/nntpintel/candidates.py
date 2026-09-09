@@ -6,29 +6,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 
 from nntpintel.probe import ProbeObservation, probe
-from nntpintel.storage import Storage
-
-
-CANDIDATE_SQL = """
-CREATE TABLE IF NOT EXISTS candidate_qualifications (
-    id INTEGER PRIMARY KEY,
-    endpoint_id INTEGER NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
-    observed_at TEXT NOT NULL,
-    classification TEXT NOT NULL,
-    detail TEXT,
-    UNIQUE(endpoint_id, observed_at)
-);
-
-CREATE INDEX IF NOT EXISTS idx_candidate_qualifications_endpoint_time
-ON candidate_qualifications(endpoint_id, observed_at DESC);
-
-CREATE TABLE IF NOT EXISTS candidate_decisions (
-    server_id INTEGER PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,
-    status TEXT NOT NULL DEFAULT 'pending',
-    decided_at TEXT,
-    note TEXT
-);
-"""
+from nntpintel.storage import SCHEMA_VERSION, Storage
 
 
 @dataclass(frozen=True)
@@ -47,8 +25,9 @@ def _now() -> str:
 
 def ensure_candidate_schema(storage: Storage) -> None:
     with storage.connect() as conn:
-        conn.executescript(CANDIDATE_SQL)
-        conn.commit()
+        row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+    if row is None or int(row["version"]) != SCHEMA_VERSION:
+        raise RuntimeError("candidate schema requires initialized Storage schema")
 
 
 def due_candidates(storage: Storage, *, limit: int = 10) -> list[dict]:
