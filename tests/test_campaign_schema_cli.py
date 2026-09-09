@@ -5,7 +5,7 @@ from nntpintel.propagation_campaigns import get_campaign
 from nntpintel.storage import SCHEMA_VERSION, Storage
 
 
-def test_schema_v5_campaign_data_migrates_to_v6(tmp_path):
+def test_schema_v5_campaign_data_migrates_to_v7(tmp_path):
     path = tmp_path / "legacy-v5.db"
     with sqlite3.connect(path) as conn:
         conn.executescript(
@@ -79,7 +79,12 @@ def test_schema_v5_campaign_data_migrates_to_v6(tmp_path):
     storage = Storage(path)
     with storage.connect() as conn:
         version = int(conn.execute("SELECT version FROM schema_version").fetchone()["version"])
-    assert version == SCHEMA_VERSION == 6
+        tables = {
+            row["name"]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+    assert version == SCHEMA_VERSION == 7
+    assert "propagation_incidents" in tables
     campaign = get_campaign(storage, 1)
     assert campaign["message_id"] == "<legacy@example.test>"
     assert campaign["endpoint_ids"] == [1]
