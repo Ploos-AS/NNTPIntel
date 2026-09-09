@@ -9,6 +9,7 @@ from nntpintel.candidate_observability import list_candidate_observability
 from nntpintel.candidates import list_candidate_qualifications
 from nntpintel.cycle import list_cycle_runs
 from nntpintel.propagation_analytics import propagation_analytics
+from nntpintel.propagation_incidents import list_propagation_incidents
 from nntpintel.propagation_trends import propagation_trends
 from nntpintel.propagation_view import (
     get_propagation_article,
@@ -157,6 +158,9 @@ class APIHandler(BaseHTTPRequestHandler):
         if path == "/web/propagation/trends":
             from nntpintel.propagation_trends_web import trends_page
             self._send_html(trends_page(self.storage)); return
+        if path == "/web/propagation/incidents":
+            from nntpintel.propagation_incidents_web import incidents_page
+            self._send_html(incidents_page(self.storage)); return
         if path.startswith("/web/propagation/"):
             from nntpintel.propagation_web import propagation_detail_page
             try: article_id = int(path.rsplit("/", 1)[1])
@@ -187,6 +191,7 @@ class APIHandler(BaseHTTPRequestHandler):
         if path == "/cycle-runs": self._send_json(list_cycle_runs(self.storage)); return
         if path == "/propagation/analytics": self._send_json(propagation_analytics(self.storage)); return
         if path == "/propagation/trends": self._send_json(propagation_trends(self.storage)); return
+        if path == "/propagation/incidents": self._send_json(list_propagation_incidents(self.storage)); return
         if path == "/propagation/articles": self._send_json(list_propagation_articles(self.storage)); return
         if path == "/propagation/campaigns": self._send_json(list_propagation_campaigns(self.storage)); return
         if path.startswith("/propagation/articles/"):
