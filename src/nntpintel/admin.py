@@ -12,6 +12,7 @@ from nntpintel.candidates import (
     qualify_candidates,
     set_candidate_status,
 )
+from nntpintel.cycle import run_candidate_cycle
 from nntpintel.discovery import (
     BUILTIN_SOURCES,
     import_seeds,
@@ -56,6 +57,14 @@ def build_parser() -> argparse.ArgumentParser:
     builtin = sub.add_parser("refresh-builtin-source", help="refresh a curated NNTP discovery adapter")
     builtin.add_argument("name", choices=sorted(BUILTIN_SOURCES))
     builtin.add_argument("--activate", action="store_true")
+
+    cycle = sub.add_parser(
+        "candidate-cycle",
+        help="refresh one curated source and safely qualify a small candidate batch",
+    )
+    cycle.add_argument("name", choices=sorted(BUILTIN_SOURCES))
+    cycle.add_argument("--limit", type=int, default=3)
+    cycle.add_argument("--timeout", type=float, default=5.0)
 
     qualify = sub.add_parser("qualify-candidates", help="safely qualify disabled discovery candidates")
     qualify.add_argument("--limit", type=int, default=5)
@@ -140,6 +149,19 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "refresh-builtin-source":
         result = refresh_builtin_source(storage, args.name, activate=args.activate)
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "candidate-cycle":
+        try:
+            result = run_candidate_cycle(
+                storage,
+                args.name,
+                limit=args.limit,
+                timeout=args.timeout,
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
         print(json.dumps(result, sort_keys=True))
         return 0
 
