@@ -25,9 +25,6 @@ def topology_risk(storage: Storage) -> dict:
     cross_cluster = cross_cluster_intelligence(storage)
     incidents = list_topology_incidents(storage, include_resolved=False)
 
-    resilience_by_server = {
-        int(item["server_id"]): item for item in resilience["nodes"]
-    }
     community_by_server = {
         int(server_id): int(community_id)
         for server_id, community_id in communities["server_community"].items()
