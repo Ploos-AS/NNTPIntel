@@ -85,19 +85,18 @@ class FakeResult:
 
 def test_postgres_migrations_are_idempotent():
     conn = FakeConnection()
-    assert apply_postgres_migrations(conn) == 2
-    assert conn.inserted == [
+    assert apply_postgres_migrations(conn) == 3
+    expected = [
         (1, "bootstrap schema metadata"),
         (2, "production core schema and observation partitions"),
+        (3, "server availability and latency rollups"),
     ]
+    assert conn.inserted == expected
     assert conn.committed is True
 
     conn.committed = False
-    assert apply_postgres_migrations(conn) == 2
-    assert conn.inserted == [
-        (1, "bootstrap schema metadata"),
-        (2, "production core schema and observation partitions"),
-    ]
+    assert apply_postgres_migrations(conn) == 3
+    assert conn.inserted == expected
     assert conn.committed is True
 
 
@@ -124,3 +123,12 @@ def test_partitioned_primary_and_unique_keys_include_observed_at():
     assert sql.count("PRIMARY KEY(id, observed_at)") == 4
     assert "UNIQUE(endpoint_id, newsgroup_id, observed_at)" in sql
     assert "UNIQUE(article_id, endpoint_id, observed_at)" in sql
+
+
+def test_server_observation_rollup_schema_is_version_three():
+    migration = POSTGRES_MIGRATIONS[2]
+    sql = " ".join(migration.sql.split())
+    assert migration.version == 3
+    assert "CREATE TABLE IF NOT EXISTS server_observation_rollups" in sql
+    assert "resolution IN ('hour', 'day')" in sql
+    assert "PRIMARY KEY(server_id, resolution, bucket_start)" in sql
