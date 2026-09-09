@@ -20,7 +20,7 @@ def communities_page(storage: Storage) -> str:
         f'<td>{item["max_impact_score"]}</td>'
         f'<td>{item["open_incident_count"]}</td>'
         f'<td>{item["affected_server_count"]}</td>'
-        f'<td><a href="/web/propagation/topology/explain/{quote(f"community:{item["community_id"]}", safe="")}">Explain</a></td>'
+        f'<td><a href="/web/propagation/topology/explain/{quote("community:" + str(item["community_id"]), safe="")}">Explain</a></td>'
         "</tr>"
         for item in data["communities"]
     ) or '<tr><td colspan="10">No inferred topology communities yet.</td></tr>'
