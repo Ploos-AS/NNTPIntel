@@ -140,8 +140,36 @@ class APIHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_html(self, html: str, status: HTTPStatus = HTTPStatus.OK) -> None:
+        body = html.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path
+        if path in {"/", "/web"}:
+            from nntpintel.web import dashboard
+
+            self._send_html(dashboard(self.storage))
+            return
+        if path == "/web/servers":
+            from nntpintel.web import servers_page
+
+            self._send_html(servers_page(self.storage))
+            return
+        if path == "/web/groups":
+            from nntpintel.web import groups_page
+
+            self._send_html(groups_page(self.storage))
+            return
+        if path == "/web/events":
+            from nntpintel.web import events_page
+
+            self._send_html(events_page(self.storage))
+            return
         if path == "/healthz":
             self._send_json({"status": "ok"})
             return
