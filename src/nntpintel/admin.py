@@ -28,6 +28,7 @@ from nntpintel.discovery import (
     set_server_enabled,
 )
 from nntpintel.scheduler import SchedulerConfig, run_forever, run_once
+from nntpintel.source_management import set_cycle_schedule_enabled, set_source_enabled
 from nntpintel.storage import Storage
 
 
@@ -88,6 +89,18 @@ def build_parser() -> argparse.ArgumentParser:
     cycle_schedule.add_argument("--run-now", action="store_true")
 
     sub.add_parser("list-cycle-schedules", help="list persistent candidate cycle schedules")
+
+    source_state = sub.add_parser("set-source-enabled", help="enable or disable a discovery source")
+    source_state.add_argument("name")
+    source_state.add_argument("state", choices=["on", "off"])
+
+    schedule_state = sub.add_parser(
+        "set-cycle-schedule-enabled",
+        help="enable or disable an existing cycle schedule without changing its cadence",
+    )
+    schedule_state.add_argument("name")
+    schedule_state.add_argument("state", choices=["on", "off"])
+    schedule_state.add_argument("--run-now", action="store_true")
 
     due_cycles = sub.add_parser("run-due-cycles", help="run due candidate cycles once")
     due_cycles.add_argument("--limit", type=int, default=1)
@@ -219,6 +232,27 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "list-cycle-schedules":
         for row in list_cycle_schedules(storage):
             print(json.dumps(row, sort_keys=True))
+        return 0
+
+    if args.command == "set-source-enabled":
+        try:
+            result = set_source_enabled(storage, args.name, args.state == "on")
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "set-cycle-schedule-enabled":
+        try:
+            result = set_cycle_schedule_enabled(
+                storage,
+                args.name,
+                args.state == "on",
+                run_now=args.run_now,
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        print(json.dumps(result, sort_keys=True))
         return 0
 
     if args.command == "run-due-cycles":
