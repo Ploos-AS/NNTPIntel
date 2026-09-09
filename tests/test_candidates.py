@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import pytest
 
 from nntpintel.candidates import (
@@ -52,7 +54,7 @@ def test_classify_observation():
     assert classify_observation(_observation())[0] == "reachable"
     assert classify_observation(_observation(code=480, error="NNTPProtocolError: unexpected greeting code 480"))[0] == "auth_required"
     assert classify_observation(_observation(code=None, error="NNTPProtocolError: invalid NNTP status line"))[0] == "not_nntp"
-    assert classify_observation(_observation(code=None, error="ConnectionRefusedError: refused"))[0] == "dead"
+    assert classify_observation(_observation(code=None, error="ConnectionRefusedError: refused"))[0] == "unreachable"
     assert classify_observation(_observation(code=None, error="SSLError: certificate verify failed"))[0] == "tls_error"
 
 
@@ -104,19 +106,40 @@ def test_qualification_history_rotates_candidates(tmp_path):
     assert first[0]["host"] != second[0]["host"]
 
 
-def test_promotion_requires_two_reachable_and_latest_reachable(tmp_path):
+def test_recent_qualification_is_not_immediately_due_again(tmp_path):
     storage = Storage(tmp_path / "nntpintel.db")
     import_seeds(storage, ["news.example.test"], source="test-source")
-    from nntpintel.candidates import ensure_candidate_schema
-
-    ensure_candidate_schema(storage)
     _add_qualification(storage, "news.example.test", "reachable", "2026-09-09T01:00:00+00:00")
-    with pytest.raises(ValueError, match="needs 2 reachable"):
-        promote_candidate(storage, "news.example.test")
 
-    _add_qualification(storage, "news.example.test", "dead", "2026-09-09T01:01:00+00:00")
+    now = datetime(2026, 9, 9, 2, 0, tzinfo=UTC)
+    assert due_candidates(storage, now=now) == []
+    assert len(due_candidates(storage, now=now, min_age_seconds=0)) == 1
+
+
+def test_candidate_counts_are_not_multiplied_by_multiple_sources(tmp_path):
+    storage = Storage(tmp_path / "nntpintel.db")
+    import_seeds(storage, ["news.example.test"], source="source-one")
+    import_seeds(storage, ["news.example.test"], source="source-two")
+    _add_qualification(storage, "news.example.test", "reachable", "2026-09-09T01:00:00+00:00")
+    _add_qualification(storage, "news.example.test", "unreachable", "2026-09-09T01:01:00+00:00")
+
+    row = list_candidates(storage)[0]
+    assert row["qualification_count"] == 2
+    assert row["reachable_count"] == 1
+
+
+def test_promotion_requires_two_recent_reachable_and_latest_reachable(tmp_path):
+    storage = Storage(tmp_path / "nntpintel.db")
+    import_seeds(storage, ["news.example.test"], source="test-source")
+    now = datetime(2026, 9, 9, 3, 0, tzinfo=UTC)
+
+    _add_qualification(storage, "news.example.test", "reachable", "2026-09-09T01:00:00+00:00")
+    with pytest.raises(ValueError, match="needs 2 recent reachable"):
+        promote_candidate(storage, "news.example.test", now=now)
+
+    _add_qualification(storage, "news.example.test", "unreachable", "2026-09-09T01:01:00+00:00")
     _add_qualification(storage, "news.example.test", "reachable", "2026-09-09T01:02:00+00:00")
-    result = promote_candidate(storage, "news.example.test")
+    result = promote_candidate(storage, "news.example.test", now=now)
     assert result["status"] == "promoted"
     assert result["reachable_count"] == 2
 
@@ -130,14 +153,68 @@ def test_promotion_requires_two_reachable_and_latest_reachable(tmp_path):
 def test_promotion_refuses_when_latest_result_is_not_reachable(tmp_path):
     storage = Storage(tmp_path / "nntpintel.db")
     import_seeds(storage, ["news.example.test"], source="test-source")
-    from nntpintel.candidates import ensure_candidate_schema
-
-    ensure_candidate_schema(storage)
     _add_qualification(storage, "news.example.test", "reachable", "2026-09-09T01:00:00+00:00")
     _add_qualification(storage, "news.example.test", "reachable", "2026-09-09T01:01:00+00:00")
-    _add_qualification(storage, "news.example.test", "dead", "2026-09-09T01:02:00+00:00")
-    with pytest.raises(ValueError, match="latest qualification must be reachable"):
-        promote_candidate(storage, "news.example.test")
+    _add_qualification(storage, "news.example.test", "unreachable", "2026-09-09T01:02:00+00:00")
+    with pytest.raises(ValueError, match="latest recent qualification must be reachable"):
+        promote_candidate(
+            storage,
+            "news.example.test",
+            now=datetime(2026, 9, 9, 3, 0, tzinfo=UTC),
+        )
+
+
+def test_promotion_rejects_stale_reachable_history(tmp_path):
+    storage = Storage(tmp_path / "nntpintel.db")
+    import_seeds(storage, ["news.example.test"], source="test-source")
+    _add_qualification(storage, "news.example.test", "reachable", "2026-08-01T01:00:00+00:00")
+    _add_qualification(storage, "news.example.test", "reachable", "2026-08-01T02:00:00+00:00")
+
+    with pytest.raises(ValueError, match="needs 2 recent reachable"):
+        promote_candidate(
+            storage,
+            "news.example.test",
+            now=datetime(2026, 9, 9, 3, 0, tzinfo=UTC),
+        )
+
+
+def test_rejected_candidate_must_be_reset_before_promotion(tmp_path):
+    storage = Storage(tmp_path / "nntpintel.db")
+    import_seeds(storage, ["news.example.test"], source="test-source")
+    _add_qualification(storage, "news.example.test", "reachable", "2026-09-09T01:00:00+00:00")
+    _add_qualification(storage, "news.example.test", "reachable", "2026-09-09T01:01:00+00:00")
+    set_candidate_status(storage, "news.example.test", "rejected")
+
+    with pytest.raises(ValueError, match="status must be pending"):
+        promote_candidate(
+            storage,
+            "news.example.test",
+            now=datetime(2026, 9, 9, 3, 0, tzinfo=UTC),
+        )
+
+    set_candidate_status(storage, "news.example.test", "pending")
+    assert promote_candidate(
+        storage,
+        "news.example.test",
+        now=datetime(2026, 9, 9, 3, 0, tzinfo=UTC),
+    )["status"] == "promoted"
+
+
+def test_promotion_requires_active_enabled_source_provenance(tmp_path):
+    storage = Storage(tmp_path / "nntpintel.db")
+    import_seeds(storage, ["news.example.test"], source="test-source")
+    _add_qualification(storage, "news.example.test", "reachable", "2026-09-09T01:00:00+00:00")
+    _add_qualification(storage, "news.example.test", "reachable", "2026-09-09T01:01:00+00:00")
+    with storage.connect() as conn:
+        conn.execute("UPDATE discovery_sources SET enabled = 0 WHERE name = 'test-source'")
+        conn.commit()
+
+    with pytest.raises(ValueError, match="active provenance"):
+        promote_candidate(
+            storage,
+            "news.example.test",
+            now=datetime(2026, 9, 9, 3, 0, tzinfo=UTC),
+        )
 
 
 def test_rejected_and_ignored_candidates_leave_qualification_queue(tmp_path):
