@@ -5,6 +5,7 @@ from collections import defaultdict
 from nntpintel.propagation_topology_communities import topology_communities
 from nntpintel.propagation_topology_cross_cluster import cross_cluster_intelligence
 from nntpintel.propagation_topology_incidents import list_topology_incidents
+from nntpintel.propagation_topology_quality import topology_data_quality
 from nntpintel.propagation_topology_resilience import topology_resilience
 from nntpintel.storage import Storage
 
@@ -19,11 +20,22 @@ def _risk_level(score: float) -> str:
     return "low"
 
 
+def _evidence_level(coverage: float, freshness: str, global_quality: int) -> str:
+    if freshness in {"very_stale", "no_valid_presence"} or coverage < 0.5 or global_quality < 40:
+        return "low"
+    if freshness == "stale" or coverage < 0.75 or global_quality < 60:
+        return "limited"
+    if coverage >= 0.9 and freshness == "fresh" and global_quality >= 80:
+        return "high"
+    return "moderate"
+
+
 def topology_risk(storage: Storage) -> dict:
     communities = topology_communities(storage)
     resilience = topology_resilience(storage)
     cross_cluster = cross_cluster_intelligence(storage)
     incidents = list_topology_incidents(storage, include_resolved=False)
+    quality = topology_data_quality(storage)
 
     community_by_server = {
         int(server_id): int(community_id)
@@ -31,6 +43,9 @@ def topology_risk(storage: Storage) -> dict:
     }
     gateway_by_server = {
         int(item["server_id"]): item for item in cross_cluster["gateway_servers"]
+    }
+    quality_by_server = {
+        int(item["server_id"]): item for item in quality["servers"]
     }
     incidents_by_server: dict[int, list[dict]] = defaultdict(list)
     for incident in incidents:
@@ -78,6 +93,10 @@ def topology_risk(storage: Storage) -> dict:
             + 0.05 * scope_score,
             1,
         )
+        server_quality = quality_by_server.get(server_id)
+        coverage = float(server_quality["valid_presence_coverage"]) if server_quality else 0.0
+        freshness = str(server_quality["freshness"]) if server_quality else "no_valid_presence"
+        evidence_level = _evidence_level(coverage, freshness, int(quality["quality_score"]))
         server_rows.append(
             {
                 "server_id": server_id,
@@ -85,6 +104,11 @@ def topology_risk(storage: Storage) -> dict:
                 "community_id": community_by_server.get(server_id),
                 "risk_score": risk_score,
                 "risk_level": _risk_level(risk_score),
+                "evidence_level": evidence_level,
+                "evidence_quality_score": int(quality["quality_score"]),
+                "evidence_coverage": round(coverage, 3),
+                "evidence_freshness": freshness,
+                "risk_score_quality_adjusted": False,
                 "incident_score": round(incident_score, 1),
                 "open_incident_count": len(server_incidents),
                 "critical_incident_count": critical,
@@ -105,6 +129,7 @@ def topology_risk(storage: Storage) -> dict:
         if row["community_id"] is not None:
             rows_by_community[int(row["community_id"])].append(row)
 
+    evidence_rank = {"low": 0, "limited": 1, "moderate": 2, "high": 3}
     community_rows: list[dict] = []
     for community in communities["communities"]:
         community_id = int(community["community_id"])
@@ -129,11 +154,18 @@ def topology_risk(storage: Storage) -> dict:
             + 0.1 * gateway_exposure,
             1,
         )
+        community_evidence = min(
+            (str(item["evidence_level"]) for item in members),
+            key=lambda value: evidence_rank[value],
+            default="low",
+        )
         community_rows.append(
             {
                 "community_id": community_id,
                 "risk_score": risk_score,
                 "risk_level": _risk_level(risk_score),
+                "evidence_level": community_evidence,
+                "risk_score_quality_adjusted": False,
                 "server_count": int(community["server_count"]),
                 "open_incident_count": int(community["open_incident_count"]),
                 "affected_server_count": int(community["affected_server_count"]),
@@ -152,13 +184,21 @@ def topology_risk(storage: Storage) -> dict:
         "authoritative_topology": False,
         "disclaimer": (
             "Risk scores are internal triage rankings synthesized from NNTPIntel's inferred topology, "
-            "incidents, impact, resilience, communities, and gateway observations; they do not measure "
-            "real-world NNTP operational risk or prove physical dependencies."
+            "incidents, impact, resilience, communities, and gateway observations. Evidence quality is "
+            "reported separately and never increases or decreases the risk score."
         ),
         "incident_scope": cross_cluster["incident_scope"],
+        "data_quality_score": int(quality["quality_score"]),
+        "data_quality_level": quality["quality_level"],
+        "risk_score_quality_adjusted": False,
         "server_count": len(server_rows),
         "community_count": len(community_rows),
         "high_risk_server_count": sum(1 for item in server_rows if item["risk_score"] >= 50.0),
+        "high_risk_low_evidence_server_count": sum(
+            1
+            for item in server_rows
+            if item["risk_score"] >= 50.0 and item["evidence_level"] in {"low", "limited"}
+        ),
         "high_risk_community_count": sum(
             1 for item in community_rows if item["risk_score"] >= 50.0
         ),
