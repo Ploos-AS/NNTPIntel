@@ -10,6 +10,7 @@ from nntpintel.probe import probe
 from nntpintel.propagation_campaigns import run_due_campaigns
 from nntpintel.propagation_incidents import evaluate_propagation_incidents
 from nntpintel.propagation_topology_incidents import evaluate_topology_incidents
+from nntpintel.propagation_topology_snapshots import capture_topology_snapshots
 from nntpintel.storage import Storage
 
 
@@ -111,13 +112,15 @@ def run_once(storage: Storage, *, config: SchedulerConfig | None = None) -> int:
         max_backoff_seconds=config.max_cycle_backoff_seconds,
     )
     campaign_runs = run_due_campaigns(storage, limit=config.campaign_batch_size)
-    if any(
+    topology_changed = any(
         (row["cycle"] is not None and int(row["cycle"]["measured_endpoint_count"]) > 0)
         or row["terminal"] is not None
         for row in campaign_runs
-    ):
+    )
+    if topology_changed:
         evaluate_propagation_incidents(storage)
         evaluate_topology_incidents(storage)
+        capture_topology_snapshots(storage)
     return completed
 
 
