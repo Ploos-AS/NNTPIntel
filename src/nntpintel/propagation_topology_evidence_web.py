@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 from html import escape
+from urllib.parse import quote
 
 from nntpintel.propagation_topology_evidence import topology_evidence
 from nntpintel.storage import Storage
+
+
+def _explain_href(evidence_ref: str) -> str:
+    return "/web/propagation/topology/explain/" + quote(evidence_ref, safe="")
 
 
 def evidence_page(storage: Storage) -> str:
     data = topology_evidence(storage)
     server_rows = "".join(
         "<tr>"
-        f'<td>{escape(str(item["evidence_ref"]))}</td>'
+        f'<td><a href="{_explain_href(str(item["evidence_ref"]))}">{escape(str(item["evidence_ref"]))}</a></td>'
         f'<td>{escape(str(item["host"]))}</td>'
         f'<td>{len(item["campaign_ids"])}</td>'
         f'<td>{len(item["article_ids"])}</td>'
@@ -21,7 +26,7 @@ def evidence_page(storage: Storage) -> str:
     ) or '<tr><td colspan="6">No server evidence yet.</td></tr>'
     edge_rows = "".join(
         "<tr>"
-        f'<td>{escape(str(item["evidence_ref"]))}</td>'
+        f'<td><a href="{_explain_href(str(item["evidence_ref"]))}">{escape(str(item["evidence_ref"]))}</a></td>'
         f'<td>{escape(str(item["source_host"]))}</td>'
         f'<td>→</td>'
         f'<td>{escape(str(item["target_host"]))}</td>'
@@ -54,7 +59,7 @@ a{{color:#9fd3ff}}.cards{{display:flex;gap:1rem;flex-wrap:wrap;margin:1rem 0 2re
 <p><a href="/web/propagation/topology">← Inferred topology</a> · <a href="/web/propagation/topology/risk">Risk</a> · <a href="/web/propagation/topology/incidents">Incidents</a></p>
 <h2>Topology evidence provenance</h2><p class="warning"><strong>Explainability only.</strong> {escape(data["disclaimer"])}</p>
 <div class="cards"><div class="card">Server evidence refs<div class="metric">{data["server_evidence_count"]}</div></div><div class="card">Edge evidence refs<div class="metric">{data["edge_evidence_count"]}</div></div></div>
-<h3>Server evidence</h3><table><thead><tr><th>Evidence ref</th><th>Server</th><th>Campaigns</th><th>Targeted articles</th><th>Visible articles</th><th>Valid observations</th></tr></thead><tbody>{server_rows}</tbody></table>
-<h3>Inferred edge evidence</h3><table><thead><tr><th>Evidence ref</th><th>Earlier server</th><th></th><th>Later server</th><th>Confidence</th><th>Directional samples</th><th>Supporting articles</th></tr></thead><tbody>{edge_rows}</tbody></table>
+<h3>Server evidence</h3><table><thead><tr><th>Evidence ref / explain</th><th>Server</th><th>Campaigns</th><th>Targeted articles</th><th>Visible articles</th><th>Valid observations</th></tr></thead><tbody>{server_rows}</tbody></table>
+<h3>Inferred edge evidence</h3><table><thead><tr><th>Evidence ref / explain</th><th>Earlier server</th><th></th><th>Later server</th><th>Confidence</th><th>Directional samples</th><th>Supporting articles</th></tr></thead><tbody>{edge_rows}</tbody></table>
 <h3>Supporting Message-IDs and observations</h3><table><thead><tr><th>Edge ref</th><th>Article ID</th><th>Message-ID</th><th>Source campaigns</th><th>Target campaigns</th><th>Source observation</th><th>Target observation</th></tr></thead><tbody>{article_rows}</tbody></table>
 </main></body></html>"""
