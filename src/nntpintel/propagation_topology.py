@@ -112,6 +112,7 @@ def inferred_propagation_topology(
                 "target_host": hosts[target_id],
                 "relation": "observed_precedence",
                 "inference": True,
+                "evidence_ref": f"edge:{source_id}->{target_id}",
                 "sample_count": len(deltas),
                 "directional_sample_count": directional,
                 "forward_count": forward,
@@ -131,7 +132,7 @@ def inferred_propagation_topology(
         )
     )
     nodes = [
-        {"server_id": server_id, "host": host}
+        {"server_id": server_id, "host": host, "evidence_ref": f"server:{server_id}"}
         for server_id, host in sorted(hosts.items(), key=lambda item: item[1])
     ]
     return {
