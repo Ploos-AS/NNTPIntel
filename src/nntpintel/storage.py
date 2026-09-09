@@ -85,6 +85,15 @@ CREATE TABLE IF NOT EXISTS group_snapshots (
     UNIQUE(endpoint_id, newsgroup_id, observed_at)
 );
 
+CREATE TABLE IF NOT EXISTS group_events (
+    id INTEGER PRIMARY KEY,
+    endpoint_id INTEGER NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
+    newsgroup_id INTEGER NOT NULL REFERENCES newsgroups(id) ON DELETE CASCADE,
+    observed_at TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    detail_json TEXT NOT NULL DEFAULT '{}'
+);
+
 CREATE INDEX IF NOT EXISTS idx_observations_endpoint_time
 ON observations(endpoint_id, observed_at DESC);
 
@@ -93,6 +102,9 @@ ON endpoints(enabled, next_probe_at);
 
 CREATE INDEX IF NOT EXISTS idx_group_snapshots_group_time
 ON group_snapshots(newsgroup_id, observed_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_group_events_endpoint_time
+ON group_events(endpoint_id, observed_at DESC);
 """
 
 
@@ -215,6 +227,26 @@ class Storage:
         if inventory.error is not None:
             return 0
         with closing(self.connect()) as conn:
+            previous_at_row = conn.execute(
+                "SELECT MAX(observed_at) AS observed_at FROM group_snapshots WHERE endpoint_id = ?",
+                (endpoint_id,),
+            ).fetchone()
+            previous_at = previous_at_row["observed_at"] if previous_at_row else None
+            previous: dict[str, sqlite3.Row] = {}
+            if previous_at is not None:
+                rows = conn.execute(
+                    """
+                    SELECT n.name, g.high_water, g.low_water, g.posting_status, g.description
+                    FROM group_snapshots g
+                    JOIN newsgroups n ON n.id = g.newsgroup_id
+                    WHERE g.endpoint_id = ? AND g.observed_at = ?
+                    """,
+                    (endpoint_id, previous_at),
+                ).fetchall()
+                previous = {row["name"]: row for row in rows}
+
+            current_names = {group.name for group in inventory.groups}
+            ids: dict[str, int] = {}
             for group in inventory.groups:
                 conn.execute(
                     """
@@ -235,9 +267,12 @@ class Storage:
                     """,
                     (group.name, hierarchy_id, inventory.observed_at, inventory.observed_at),
                 )
-                newsgroup_id = conn.execute(
-                    "SELECT id FROM newsgroups WHERE name = ?", (group.name,)
-                ).fetchone()["id"]
+                newsgroup_id = int(
+                    conn.execute(
+                        "SELECT id FROM newsgroups WHERE name = ?", (group.name,)
+                    ).fetchone()["id"]
+                )
+                ids[group.name] = newsgroup_id
                 conn.execute(
                     """
                     INSERT INTO group_snapshots(
@@ -255,6 +290,48 @@ class Storage:
                         group.description,
                     ),
                 )
+
+                old = previous.get(group.name)
+                if old is None:
+                    event_type = "appeared"
+                    detail = {}
+                else:
+                    before = [
+                        old["high_water"], old["low_water"], old["posting_status"], old["description"]
+                    ]
+                    after = [group.high, group.low, group.status, group.description]
+                    event_type = "changed" if before != after else ""
+                    detail = {"before": before, "after": after} if event_type else {}
+                if event_type:
+                    conn.execute(
+                        """
+                        INSERT INTO group_events(
+                            endpoint_id, newsgroup_id, observed_at, event_type, detail_json
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            endpoint_id,
+                            newsgroup_id,
+                            inventory.observed_at,
+                            event_type,
+                            json.dumps(detail, sort_keys=True),
+                        ),
+                    )
+
+            for name in sorted(set(previous) - current_names):
+                newsgroup_id = int(
+                    conn.execute(
+                        "SELECT id FROM newsgroups WHERE name = ?", (name,)
+                    ).fetchone()["id"]
+                )
+                conn.execute(
+                    """
+                    INSERT INTO group_events(
+                        endpoint_id, newsgroup_id, observed_at, event_type, detail_json
+                    ) VALUES (?, ?, ?, 'disappeared', '{}')
+                    """,
+                    (endpoint_id, newsgroup_id, inventory.observed_at),
+                )
             conn.commit()
         return len(inventory.groups)
 
@@ -265,6 +342,10 @@ class Storage:
     def hierarchy_count(self) -> int:
         with closing(self.connect()) as conn:
             return int(conn.execute("SELECT COUNT(*) FROM hierarchies").fetchone()[0])
+
+    def group_event_count(self) -> int:
+        with closing(self.connect()) as conn:
+            return int(conn.execute("SELECT COUNT(*) FROM group_events").fetchone()[0])
 
     def update_schedule(
         self,
