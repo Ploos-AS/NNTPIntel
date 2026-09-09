@@ -9,7 +9,7 @@ from pathlib import Path
 from nntpintel.groups import GroupInventory
 from nntpintel.probe import ProbeObservation
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 SCHEMA_SQL = """
@@ -161,6 +161,26 @@ CREATE TABLE IF NOT EXISTS candidate_cycle_schedule (
     consecutive_failures INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS propagation_articles (
+    id INTEGER PRIMARY KEY,
+    message_id TEXT NOT NULL UNIQUE,
+    newsgroup TEXT,
+    article_date TEXT,
+    first_registered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS propagation_observations (
+    id INTEGER PRIMARY KEY,
+    article_id INTEGER NOT NULL REFERENCES propagation_articles(id) ON DELETE CASCADE,
+    endpoint_id INTEGER NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
+    observed_at TEXT NOT NULL,
+    present INTEGER NOT NULL,
+    method TEXT NOT NULL DEFAULT 'stat',
+    response_code INTEGER,
+    error TEXT,
+    UNIQUE(article_id, endpoint_id, observed_at)
+);
+
 CREATE INDEX IF NOT EXISTS idx_observations_endpoint_time
 ON observations(endpoint_id, observed_at DESC);
 
@@ -184,6 +204,12 @@ ON candidate_cycle_runs(source, started_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_candidate_cycle_schedule_due
 ON candidate_cycle_schedule(enabled, next_cycle_at);
+
+CREATE INDEX IF NOT EXISTS idx_propagation_observations_article_time
+ON propagation_observations(article_id, observed_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_propagation_observations_endpoint_time
+ON propagation_observations(endpoint_id, observed_at DESC);
 """
 
 
@@ -209,7 +235,7 @@ class Storage:
             row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
             if row is None:
                 conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
-            elif row["version"] in {1, 2, 3}:
+            elif row["version"] in {1, 2, 3, 4}:
                 conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
             elif row["version"] != SCHEMA_VERSION:
                 raise RuntimeError(
