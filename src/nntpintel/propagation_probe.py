@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import socket
 import ssl
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import BinaryIO
 
 from nntpintel.probe import NNTPProtocolError, _parse_status, _readline, _send
-from nntpintel.propagation import normalize_message_id
+from nntpintel.propagation import normalize_message_id, record_presence
+from nntpintel.storage import Storage
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,3 +116,45 @@ def stat_message_id(
                 raw_sock.close()
             except OSError:
                 pass
+
+
+def probe_and_record_presence(
+    storage: Storage,
+    endpoint_id: int,
+    message_id: str,
+    *,
+    timeout: float = 5.0,
+    probe_func: Callable[..., PresenceProbeResult] = stat_message_id,
+) -> dict:
+    with storage.connect() as conn:
+        endpoint = conn.execute(
+            """
+            SELECT e.id, e.port, e.transport, e.starttls, s.host
+            FROM endpoints e
+            JOIN servers s ON s.id = e.server_id
+            WHERE e.id = ? AND e.enabled = 1 AND s.enabled = 1
+            """,
+            (endpoint_id,),
+        ).fetchone()
+    if endpoint is None:
+        raise ValueError(f"unknown or disabled endpoint: {endpoint_id}")
+
+    result = probe_func(
+        endpoint["host"],
+        message_id,
+        port=int(endpoint["port"]),
+        implicit_tls=endpoint["transport"] == "tls",
+        starttls=bool(endpoint["starttls"]),
+        timeout=timeout,
+    )
+    record_presence(
+        storage,
+        result.message_id,
+        endpoint_id,
+        observed_at=result.observed_at,
+        present=result.present,
+        method="stat",
+        response_code=result.response_code,
+        error=result.error,
+    )
+    return asdict(result)
