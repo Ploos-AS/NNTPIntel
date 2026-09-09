@@ -102,6 +102,7 @@ def topology_risk(storage: Storage) -> dict:
                 "server_id": server_id,
                 "host": node["host"],
                 "community_id": community_by_server.get(server_id),
+                "conclusion_ref": f"risk:server:{server_id}",
                 "risk_score": risk_score,
                 "risk_level": _risk_level(risk_score),
                 "evidence_ref": f"server:{server_id}",
@@ -163,6 +164,7 @@ def topology_risk(storage: Storage) -> dict:
         community_rows.append(
             {
                 "community_id": community_id,
+                "conclusion_ref": f"community:{community_id}",
                 "risk_score": risk_score,
                 "risk_level": _risk_level(risk_score),
                 "evidence_refs": [str(item["evidence_ref"]) for item in members],
