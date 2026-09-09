@@ -99,13 +99,14 @@ def _tls_details(sock: ssl.SSLSocket, mode: str) -> TLSObservation:
     )
 
 
-def probe(
+def _probe(
     host: str,
     *,
-    port: int = 119,
-    implicit_tls: bool = False,
-    starttls: bool = False,
-    timeout: float = 10.0,
+    port: int,
+    implicit_tls: bool,
+    starttls: bool,
+    timeout: float,
+    mode_reader: bool,
 ) -> ProbeObservation:
     if implicit_tls and starttls:
         raise ValueError("implicit_tls and starttls are mutually exclusive")
@@ -159,11 +160,12 @@ def probe(
         if cap_code == 101:
             observation.capabilities = _read_multiline(stream)
 
-        _send(stream, "MODE READER")
-        mode_line = _readline(stream)
-        mode_code, _ = _parse_status(mode_line)
-        observation.mode_reader_code = mode_code
-        observation.mode_reader_response = mode_line
+        if mode_reader:
+            _send(stream, "MODE READER")
+            mode_line = _readline(stream)
+            mode_code, _ = _parse_status(mode_line)
+            observation.mode_reader_code = mode_code
+            observation.mode_reader_response = mode_line
 
         try:
             _send(stream, "QUIT")
@@ -186,3 +188,40 @@ def probe(
                 pass
 
     return observation
+
+
+def probe(
+    host: str,
+    *,
+    port: int = 119,
+    implicit_tls: bool = False,
+    starttls: bool = False,
+    timeout: float = 10.0,
+) -> ProbeObservation:
+    return _probe(
+        host,
+        port=port,
+        implicit_tls=implicit_tls,
+        starttls=starttls,
+        timeout=timeout,
+        mode_reader=True,
+    )
+
+
+def qualification_probe(
+    host: str,
+    *,
+    port: int = 119,
+    implicit_tls: bool = False,
+    starttls: bool = False,
+    timeout: float = 5.0,
+) -> ProbeObservation:
+    """Minimally qualify an NNTP endpoint without entering reader mode."""
+    return _probe(
+        host,
+        port=port,
+        implicit_tls=implicit_tls,
+        starttls=starttls,
+        timeout=timeout,
+        mode_reader=False,
+    )
