@@ -1,6 +1,3 @@
-from __future__ import annotations
-
-
 SCALAR_FIELDS = (
     ("analysis.risk.risk_score", "risk", "Risk"),
     ("analysis.risk.risk_level", "risk_level", "Risk level"),
