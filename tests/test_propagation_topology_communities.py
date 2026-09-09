@@ -45,6 +45,8 @@ def test_topology_communities_separate_components_and_isolates(monkeypatch, tmp_
     assert result["authoritative_topology"] is False
     assert result["community_count"] == 3
     assert result["isolated_server_count"] == 1
+    assert result["communities_with_open_incidents"] == 0
+    assert all(item["open_incident_count"] == 0 for item in result["communities"])
     sizes = sorted(item["server_count"] for item in result["communities"])
     assert sizes == [1, 2, 2]
     isolated = next(item for item in result["communities"] if item["server_count"] == 1)
@@ -63,11 +65,17 @@ def test_topology_communities_api_and_web(tmp_path):
             payload = json.load(response)
         assert payload["authoritative_topology"] is False
         assert "community_count" in payload
+        assert "communities_with_open_incidents" in payload
 
         with urlopen(f"{base}/web/propagation/topology/communities", timeout=2) as response:
             html = response.read().decode("utf-8")
         assert "Topology communities / clusters" in html
         assert "Inference only" in html
+        assert "Open incidents" in html
+
+        with urlopen(f"{base}/web/propagation/topology", timeout=2) as response:
+            topology_html = response.read().decode("utf-8")
+        assert "/web/propagation/topology/communities" in topology_html
     finally:
         server.shutdown()
         server.server_close()
