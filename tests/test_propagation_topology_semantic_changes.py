@@ -55,7 +55,7 @@ def test_semantic_changes_report_operator_meaningful_fields():
     assert by_code["presence_observations"]["summary"] == "+2 presence observations (2→4)"
 
 
-def test_bundle_diff_includes_semantic_changes_and_ignores_export_time():
+def test_bundle_diff_includes_semantic_changes_and_significance():
     before = _bundle(risk=42.0, level="moderate", evidence="high", observations=[1, 2])
     after = _bundle(risk=68.0, level="high", evidence="limited", observations=[1, 2, 3, 4])
     after["generated_at"] = "2026-09-10T12:00:00Z"
@@ -65,6 +65,8 @@ def test_bundle_diff_includes_semantic_changes_and_ignores_export_time():
     assert diff["semantic_change_count"] >= 6
     assert any(item["code"] == "risk" for item in diff["semantic_changes"])
     assert all(item["path"] != "generated_at" for item in diff["semantic_changes"])
+    assert diff["significance"]["level"] == "important"
+    assert diff["significance"]["operator_confirmed"] is False
 
 
 def test_same_fingerprint_has_no_semantic_changes():
@@ -76,3 +78,4 @@ def test_same_fingerprint_has_no_semantic_changes():
     assert diff["same_fingerprint"] is True
     assert diff["semantic_change_count"] == 0
     assert diff["semantic_changes"] == []
+    assert diff["significance"]["level"] == "informational"
