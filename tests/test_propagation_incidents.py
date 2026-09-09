@@ -1,5 +1,9 @@
+import json
+import threading
 from datetime import UTC, datetime
+from urllib.request import urlopen
 
+from nntpintel.api import make_server
 from nntpintel.propagation import record_presence
 from nntpintel.propagation_campaigns import create_campaign
 from nntpintel.propagation_incidents import (
@@ -43,8 +47,8 @@ def _add_article(storage, fast, slow, index, base, slow_delay, *, slow_visible=T
         )
 
 
-def test_incident_lifecycle_opens_updates_and_resolves_lagging(tmp_path):
-    storage = Storage(tmp_path / "nntpintel.db")
+def _lagging_storage(tmp_path):
+    storage = Storage(tmp_path / "lagging.db")
     fast = storage.ensure_endpoint("fast.example.test")
     slow = storage.ensure_endpoint("slow.example.test")
     for index, delay in enumerate((60, 70, 80), start=1):
@@ -56,13 +60,15 @@ def test_incident_lifecycle_opens_updates_and_resolves_lagging(tmp_path):
             datetime(2026, 9, 8, index, 0, tzinfo=UTC),
             delay,
         )
-
-    first = evaluate_propagation_incidents(
+    evaluate_propagation_incidents(
         storage,
         now=datetime(2026, 9, 9, 6, 0, tzinfo=UTC),
     )
-    assert first["created_count"] == 1
-    assert first["open_incident_count"] == 1
+    return storage
+
+
+def test_incident_lifecycle_opens_updates_and_resolves_lagging(tmp_path):
+    storage = _lagging_storage(tmp_path)
     incidents = list_propagation_incidents(storage)
     assert len(incidents) == 1
     assert incidents[0]["host"] == "slow.example.test"
@@ -157,3 +163,29 @@ def test_incidents_detect_coverage_drop_and_delay_spike(tmp_path):
     assert coverage["severity"] == "critical"
     assert coverage["detail"]["coverage_24h_percent"] == 0.0
     assert coverage["detail"]["coverage_7d_percent"] == 50.0
+
+
+def test_incidents_api_and_web(tmp_path):
+    storage = _lagging_storage(tmp_path)
+    server = make_server(storage, "127.0.0.1", 0)
+    host, port = server.server_address
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://{host}:{port}"
+    try:
+        with urlopen(f"{base}/propagation/incidents", timeout=2) as response:
+            payload = json.load(response)
+        assert payload[0]["host"] == "slow.example.test"
+        assert payload[0]["kind"] == "lagging"
+        assert payload[0]["status"] == "open"
+
+        with urlopen(f"{base}/web/propagation/incidents", timeout=2) as response:
+            html = response.read().decode("utf-8")
+        assert "Propagation incidents" in html
+        assert "slow.example.test" in html
+        assert "lagging" in html
+        assert "warning" in html
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
