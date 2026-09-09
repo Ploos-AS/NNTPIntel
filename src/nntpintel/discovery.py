@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import urllib.parse
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from urllib import parse
 
 from nntpintel.storage import Storage
 
@@ -53,7 +53,7 @@ def parse_seed(value: str) -> Seed:
 
     if "://" not in text:
         text = f"nntp://{text}"
-    parsed = urllib.parse.urlparse(text)
+    parsed = parse.urlparse(text)
     if parsed.scheme not in {"nntp", "nntps"} or not parsed.hostname:
         raise ValueError(f"unsupported seed: {value}")
     if parsed.path not in {"", "/"} or parsed.query or parsed.fragment or parsed.username:
