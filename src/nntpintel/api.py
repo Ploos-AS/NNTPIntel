@@ -26,6 +26,11 @@ from nntpintel.propagation_topology_overview import topology_overview
 from nntpintel.propagation_topology_quality import topology_data_quality
 from nntpintel.propagation_topology_resilience import topology_resilience
 from nntpintel.propagation_topology_risk import topology_risk
+from nntpintel.propagation_topology_snapshots import (
+    compare_evidence_snapshots,
+    get_evidence_snapshot,
+    list_evidence_snapshots,
+)
 from nntpintel.propagation_trends import propagation_trends
 from nntpintel.propagation_view import (
     get_propagation_article,
@@ -289,6 +294,34 @@ class APIHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": "before and after are required"}, HTTPStatus.BAD_REQUEST); return
             comparison = compare_topology_refs(self.storage, before_ref, after_ref)
             self._send_json(comparison if comparison is not None else {"error": "not found"}, HTTPStatus.OK if comparison is not None else HTTPStatus.NOT_FOUND); return
+        if path == "/propagation/topology/snapshots":
+            conclusion_ref = params.get("ref", [None])[0]
+            if not conclusion_ref:
+                self._send_json({"error": "ref is required"}, HTTPStatus.BAD_REQUEST); return
+            limit_text = params.get("limit", ["100"])[0]
+            try:
+                limit = int(limit_text)
+            except ValueError:
+                self._send_json({"error": "invalid limit"}, HTTPStatus.BAD_REQUEST); return
+            self._send_json(list_evidence_snapshots(self.storage, conclusion_ref, limit=limit)); return
+        if path == "/propagation/topology/snapshot-diff":
+            before_text = params.get("before", [None])[0]
+            after_text = params.get("after", [None])[0]
+            if before_text is None or after_text is None:
+                self._send_json({"error": "before and after snapshot ids are required"}, HTTPStatus.BAD_REQUEST); return
+            try:
+                before_id = int(before_text); after_id = int(after_text)
+            except ValueError:
+                self._send_json({"error": "invalid snapshot id"}, HTTPStatus.BAD_REQUEST); return
+            comparison = compare_evidence_snapshots(self.storage, before_id, after_id)
+            self._send_json(comparison if comparison is not None else {"error": "not found"}, HTTPStatus.OK if comparison is not None else HTTPStatus.NOT_FOUND); return
+        if path.startswith("/propagation/topology/snapshots/"):
+            try:
+                snapshot_id = int(path.rsplit("/", 1)[1])
+            except ValueError:
+                self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND); return
+            snapshot = get_evidence_snapshot(self.storage, snapshot_id)
+            self._send_json(snapshot if snapshot is not None else {"error": "not found"}, HTTPStatus.OK if snapshot is not None else HTTPStatus.NOT_FOUND); return
         if path.startswith("/propagation/topology/export/"):
             evidence_ref = unquote(path.split("/propagation/topology/export/", 1)[1])
             bundle = topology_evidence_bundle(self.storage, evidence_ref)
