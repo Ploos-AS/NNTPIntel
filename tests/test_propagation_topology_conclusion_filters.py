@@ -115,13 +115,16 @@ def test_conclusion_filter_api_and_web(monkeypatch, tmp_path):
             }
         ],
     }
-    monkeypatch.setattr(
-        "nntpintel.api.topology_conclusions",
-        lambda storage, **kwargs: payload,
-    )
+
+    def fake_conclusions(storage, **kwargs):
+        if kwargs.get("kind") == "bad":
+            raise ValueError("invalid conclusion kind")
+        return payload
+
+    monkeypatch.setattr("nntpintel.api.topology_conclusions", fake_conclusions)
     monkeypatch.setattr(
         "nntpintel.propagation_topology_conclusions_web.topology_conclusions",
-        lambda storage, **kwargs: payload,
+        fake_conclusions,
     )
 
     server = make_server(storage, "127.0.0.1", 0)
