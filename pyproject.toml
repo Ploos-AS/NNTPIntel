@@ -12,6 +12,9 @@ license = { text = "MIT" }
 authors = [{ name = "Ploos AS" }]
 dependencies = []
 
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.2,<4"]
+
 [project.scripts]
 nntpintel-probe = "nntpintel.cli:main"
 nntpintel = "nntpintel.admin:main"
