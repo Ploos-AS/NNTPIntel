@@ -11,6 +11,7 @@ from nntpintel.cycle import list_cycle_runs
 from nntpintel.propagation_analytics import propagation_analytics
 from nntpintel.propagation_incidents import list_propagation_incidents
 from nntpintel.propagation_topology import inferred_propagation_topology
+from nntpintel.propagation_topology_anomalies import topology_anomalies
 from nntpintel.propagation_topology_history import topology_history
 from nntpintel.propagation_trends import propagation_trends
 from nntpintel.propagation_view import (
@@ -169,6 +170,9 @@ class APIHandler(BaseHTTPRequestHandler):
         if path == "/web/propagation/topology/history":
             from nntpintel.propagation_topology_history_web import history_page
             self._send_html(history_page(self.storage)); return
+        if path == "/web/propagation/topology/anomalies":
+            from nntpintel.propagation_topology_anomalies_web import anomalies_page
+            self._send_html(anomalies_page(self.storage)); return
         if path.startswith("/web/propagation/"):
             from nntpintel.propagation_web import propagation_detail_page
             try: article_id = int(path.rsplit("/", 1)[1])
@@ -202,6 +206,7 @@ class APIHandler(BaseHTTPRequestHandler):
         if path == "/propagation/incidents": self._send_json(list_propagation_incidents(self.storage)); return
         if path == "/propagation/topology": self._send_json(inferred_propagation_topology(self.storage)); return
         if path == "/propagation/topology/history": self._send_json(topology_history(self.storage)); return
+        if path == "/propagation/topology/anomalies": self._send_json(topology_anomalies(self.storage)); return
         if path == "/propagation/articles": self._send_json(list_propagation_articles(self.storage)); return
         if path == "/propagation/campaigns": self._send_json(list_propagation_campaigns(self.storage)); return
         if path.startswith("/propagation/articles/"):
