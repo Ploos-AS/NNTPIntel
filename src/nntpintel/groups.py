@@ -79,9 +79,13 @@ def inventory_groups(
     *,
     port: int = 119,
     implicit_tls: bool = False,
+    starttls: bool = False,
     timeout: float = 10.0,
     newgroups_since: datetime | None = None,
 ) -> GroupInventory:
+    if implicit_tls and starttls:
+        raise ValueError("implicit_tls and starttls are mutually exclusive")
+
     observation = GroupInventory(
         observed_at=datetime.now(UTC).isoformat(),
         host=host,
@@ -93,8 +97,8 @@ def inventory_groups(
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
         sock.settimeout(timeout)
+        context = ssl.create_default_context()
         if implicit_tls:
-            context = ssl.create_default_context()
             sock = context.wrap_socket(sock, server_hostname=host)
         stream = sock.makefile("rwb", buffering=0)
 
@@ -102,6 +106,18 @@ def inventory_groups(
         code, _ = _parse_status(greeting)
         if code not in {200, 201}:
             raise NNTPProtocolError(f"unexpected greeting code {code}")
+
+        if starttls:
+            _send(stream, "STARTTLS")
+            response = _readline(stream)
+            starttls_code, _ = _parse_status(response)
+            if starttls_code != 382:
+                raise NNTPProtocolError(f"STARTTLS rejected: {response}")
+            stream.close()
+            stream = None
+            sock = context.wrap_socket(sock, server_hostname=host)
+            observation.transport = "starttls"
+            stream = sock.makefile("rwb", buffering=0)
 
         active = _command_multiline(stream, "LIST ACTIVE", {215})
         groups = _parse_active(active)
