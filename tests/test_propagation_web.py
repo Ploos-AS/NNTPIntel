@@ -102,7 +102,11 @@ def test_propagation_api_exposes_articles_detail_and_campaigns(tmp_path):
         assert detail["newsgroup"] == "comp.test"
         assert detail["first_visibility_at"] == "2026-09-09T05:00:10+00:00"
         assert [item["delay_seconds"] for item in detail["endpoints"]] == [0.0, 32.0]
-        assert [bool(item["present"]) for item in detail["observations"]] == [False, True, True]
+        assert [item["state"] for item in detail["observations"]] == [
+            "absent",
+            "present",
+            "present",
+        ]
         assert len(detail["campaigns"]) == 1
 
         campaigns = _get_json(f"{base}/propagation/campaigns")
@@ -146,6 +150,9 @@ def test_propagation_web_renders_delay_and_presence_timeline(tmp_path):
 
     try:
         overview = _get_html(f"{base}/web/propagation")
+        assert "Propagation analytics" in overview
+        assert "Endpoint comparison" in overview
+        assert "Server comparison" in overview
         assert "Propagation articles" in overview
         assert "Campaigns" in overview
         assert "&lt;web-propagation@example.test&gt;" in overview
@@ -157,7 +164,7 @@ def test_propagation_web_renders_delay_and_presence_timeline(tmp_path):
         assert "news-a.example.test:119" in detail
         assert "news-b.example.test:119" in detail
         assert ">32.0<" in detail
-        assert "not present" in detail
+        assert "absent" in detail
         assert "present" in detail
     finally:
         server.shutdown()
