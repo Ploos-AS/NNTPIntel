@@ -27,6 +27,10 @@ def _serve_group_inventory(listener: socket.socket) -> None:
                 stream.write(b"comp.lang.python Python discussion\r\n")
                 stream.write(b"alt.test Test group\r\n")
                 stream.write(b".\r\n")
+            elif command.startswith("NEWGROUPS "):
+                stream.write(b"231 new groups follow\r\n")
+                stream.write(b"comp.lang.python 12345 12000 y\r\n")
+                stream.write(b".\r\n")
             elif command == "QUIT":
                 stream.write(b"205 closing\r\n")
                 return
@@ -43,12 +47,18 @@ def test_group_inventory_runtime_and_persistence(tmp_path):
 
     thread = threading.Thread(target=_serve_group_inventory, args=(listener,), daemon=True)
     thread.start()
-    inventory = inventory_groups("127.0.0.1", port=port, timeout=1.0)
+    inventory = inventory_groups(
+        "127.0.0.1",
+        port=port,
+        timeout=1.0,
+        newgroups_since=datetime(2026, 9, 8, tzinfo=UTC),
+    )
     thread.join(timeout=2)
     listener.close()
 
     assert inventory.error is None
     assert [group.name for group in inventory.groups] == ["alt.test", "comp.lang.python"]
+    assert inventory.new_groups == ["comp.lang.python"]
     python_group = inventory.groups[1]
     assert python_group.high == 12345
     assert python_group.low == 12000
@@ -61,6 +71,7 @@ def test_group_inventory_runtime_and_persistence(tmp_path):
     assert storage.record_group_inventory(endpoint_id, inventory) == 2
     assert storage.group_count() == 2
     assert storage.hierarchy_count() == 2
+    assert storage.group_event_count() == 2
 
     with storage.connect() as conn:
         snapshots = conn.execute(
@@ -92,10 +103,10 @@ def test_schema_v1_database_migrates_to_v2(tmp_path):
         }
 
     assert version == 2
-    assert {"hierarchies", "newsgroups", "group_snapshots"} <= tables
+    assert {"hierarchies", "newsgroups", "group_snapshots", "group_events"} <= tables
 
 
-def test_group_inventory_tracks_seen_times(tmp_path):
+def test_group_inventory_tracks_changes_and_disappearance(tmp_path):
     storage = Storage(tmp_path / "nntpintel.db")
     endpoint_id = storage.ensure_endpoint("news.example.test")
 
@@ -104,7 +115,10 @@ def test_group_inventory_tracks_seen_times(tmp_path):
         host="news.example.test",
         port=119,
         transport="tcp",
-        groups=[GroupRecord("comp.test", high=10, low=1, status="y")],
+        groups=[
+            GroupRecord("comp.test", high=10, low=1, status="y"),
+            GroupRecord("alt.test", high=5, low=1, status="y"),
+        ],
     )
     second = GroupInventory(
         observed_at=datetime(2026, 9, 9, 2, 0, tzinfo=UTC).isoformat(),
@@ -122,9 +136,24 @@ def test_group_inventory_tracks_seen_times(tmp_path):
             "SELECT first_seen_at, last_seen_at FROM newsgroups WHERE name = 'comp.test'"
         ).fetchone()
         snapshots = conn.execute(
-            "SELECT high_water FROM group_snapshots ORDER BY observed_at"
+            "SELECT high_water FROM group_snapshots WHERE newsgroup_id = "
+            "(SELECT id FROM newsgroups WHERE name = 'comp.test') ORDER BY observed_at"
+        ).fetchall()
+        events = conn.execute(
+            """
+            SELECT n.name, e.event_type
+            FROM group_events e
+            JOIN newsgroups n ON n.id = e.newsgroup_id
+            ORDER BY e.id
+            """
         ).fetchall()
 
     assert row["first_seen_at"] == first.observed_at
     assert row["last_seen_at"] == second.observed_at
     assert [item["high_water"] for item in snapshots] == [10, 11]
+    assert [(item["name"], item["event_type"]) for item in events] == [
+        ("comp.test", "appeared"),
+        ("alt.test", "appeared"),
+        ("comp.test", "changed"),
+        ("alt.test", "disappeared"),
+    ]
