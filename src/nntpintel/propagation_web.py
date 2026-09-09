@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from html import escape
 
+from nntpintel.propagation_analytics import propagation_analytics
 from nntpintel.propagation_view import (
     get_propagation_article,
     list_propagation_articles,
@@ -39,6 +40,7 @@ code {{ color:#c9e5ff; overflow-wrap:anywhere; }} section {{ margin:2rem 0; }}
 def propagation_page(storage: Storage) -> str:
     articles = list_propagation_articles(storage)
     campaigns = list_propagation_campaigns(storage)
+    analytics = propagation_analytics(storage)
     article_rows = "".join(
         "<tr>"
         f'<td><a href="/web/propagation/{item["id"]}"><code>{escape(str(item["message_id"]))}</code></a></td>'
@@ -56,9 +58,43 @@ def propagation_page(storage: Storage) -> str:
         "</tr>"
         for item in campaigns
     ) or '<tr><td colspan="6" class="muted">No propagation campaigns.</td></tr>'
+    analytics_cards = "".join(
+        f'<div class="card"><div class="muted">{escape(label)}</div><div class="metric">{escape(str(value))}</div></div>'
+        for label, value in [
+            ("Delay samples", analytics["sample_count"]),
+            ("Median delay s", analytics["median_delay_seconds"] if analytics["median_delay_seconds"] is not None else "—"),
+            ("p95 delay s", analytics["p95_delay_seconds"] if analytics["p95_delay_seconds"] is not None else "—"),
+            ("Target coverage %", analytics["target_coverage_percent"] if analytics["target_coverage_percent"] is not None else "—"),
+        ]
+    )
+    endpoint_rows = "".join(
+        "<tr>"
+        f'<td>{escape(str(item["host"]))}:{item["port"]}</td>'
+        f'<td>{item["targeted_article_count"]}</td>'
+        f'<td>{item["visible_article_count"]}</td>'
+        f'<td>{item["coverage_percent"] if item["coverage_percent"] is not None else "—"}</td>'
+        f'<td>{item["median_delay_seconds"] if item["median_delay_seconds"] is not None else "—"}</td>'
+        f'<td>{item["p95_delay_seconds"] if item["p95_delay_seconds"] is not None else "—"}</td>'
+        "</tr>"
+        for item in analytics["endpoints"]
+    ) or '<tr><td colspan="6" class="muted">No propagation analytics yet.</td></tr>'
+    server_rows = "".join(
+        "<tr>"
+        f'<td>{escape(str(item["host"]))}</td>'
+        f'<td>{item["targeted_article_count"]}</td>'
+        f'<td>{item["visible_article_count"]}</td>'
+        f'<td>{item["coverage_percent"] if item["coverage_percent"] is not None else "—"}</td>'
+        f'<td>{item["median_delay_seconds"] if item["median_delay_seconds"] is not None else "—"}</td>'
+        f'<td>{item["p95_delay_seconds"] if item["p95_delay_seconds"] is not None else "—"}</td>'
+        "</tr>"
+        for item in analytics["servers"]
+    ) or '<tr><td colspan="6" class="muted">No server analytics yet.</td></tr>'
     return _page(
         "Propagation",
         f"""
+<section><h2>Propagation analytics</h2><div class="cards">{analytics_cards}</div></section>
+<section><h2>Endpoint comparison</h2><table><thead><tr><th>Endpoint</th><th>Targeted articles</th><th>Visible articles</th><th>Coverage %</th><th>Median delay s</th><th>p95 delay s</th></tr></thead><tbody>{endpoint_rows}</tbody></table></section>
+<section><h2>Server comparison</h2><table><thead><tr><th>Server</th><th>Targeted articles</th><th>Visible articles</th><th>Coverage %</th><th>Median delay s</th><th>p95 delay s</th></tr></thead><tbody>{server_rows}</tbody></table></section>
 <section><h2>Propagation articles</h2><table><thead><tr><th>Message-ID</th><th>Newsgroup</th><th>Samples</th><th>Visible endpoints</th><th>First visibility</th></tr></thead><tbody>{article_rows}</tbody></table></section>
 <section><h2>Campaigns</h2><table><thead><tr><th>ID</th><th>Message-ID</th><th>Status</th><th>Targets</th><th>Stop after visible</th><th>Expires</th></tr></thead><tbody>{campaign_rows}</tbody></table></section>
 """,
