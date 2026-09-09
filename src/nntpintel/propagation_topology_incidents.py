@@ -78,11 +78,7 @@ def _evidence_level(server_quality: dict | None, global_quality_level: str) -> s
 
 
 def _triage_priority_score(
-    *,
-    severity: str,
-    status: str,
-    evidence_level: str,
-    impact_score: float,
+    *, severity: str, status: str, evidence_level: str, impact_score: float
 ) -> float:
     severity_score = 70.0 if severity == "critical" else 40.0
     evidence_bonus = {"high": 20.0, "moderate": 14.0, "limited": 7.0, "low": 0.0}[evidence_level]
@@ -90,11 +86,7 @@ def _triage_priority_score(
     return round(max(0.0, min(100.0, severity_score + evidence_bonus + 0.1 * impact_score + status_adjustment)), 1)
 
 
-def evaluate_topology_incidents(
-    storage: Storage,
-    *,
-    now: datetime | None = None,
-) -> dict:
+def evaluate_topology_incidents(storage: Storage, *, now: datetime | None = None) -> dict:
     current = _now_iso(now)
     data = topology_anomalies(storage)
     marker = str(data.get("snapshot_marker") or current)
@@ -103,16 +95,9 @@ def evaluate_topology_incidents(
 
     with storage.connect() as conn:
         rows = conn.execute(
-            """
-            SELECT id, server_id, kind, severity, resolved_at, detail_json
-            FROM propagation_incidents
-            WHERE resolved_at IS NULL AND kind LIKE 'topology_%'
-            """
+            "SELECT id, server_id, kind, severity, resolved_at, detail_json FROM propagation_incidents WHERE resolved_at IS NULL AND kind LIKE 'topology_%'"
         ).fetchall()
-        open_by_key = {
-            (int(row["server_id"]), str(row["kind"])): row
-            for row in rows
-        }
+        open_by_key = {(int(row["server_id"]), str(row["kind"])): row for row in rows}
 
         for key, signal in signals.items():
             server_id, kind = key
@@ -128,33 +113,13 @@ def evaluate_topology_incidents(
                     "inference_only": True,
                     "evidence_ref": f"server:{server_id}",
                 }
-                _append_evidence(
-                    detail,
-                    at=current,
-                    state=detail["lifecycle_state"],
-                    anomaly=signal["anomaly"],
-                )
+                _append_evidence(detail, at=current, state=detail["lifecycle_state"], anomaly=signal["anomaly"])
                 conn.execute(
-                    """
-                    INSERT INTO propagation_incidents(
-                        server_id, kind, severity, started_at, updated_at,
-                        window, metric_value, baseline_value, detail_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?)
-                    """,
-                    (
-                        server_id,
-                        kind,
-                        signal["severity"],
-                        current,
-                        current,
-                        signal["window"],
-                        json.dumps(detail, sort_keys=True),
-                    ),
+                    "INSERT INTO propagation_incidents(server_id, kind, severity, started_at, updated_at, window, metric_value, baseline_value, detail_json) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?)",
+                    (server_id, kind, signal["severity"], current, current, signal["window"], json.dumps(detail, sort_keys=True)),
                 )
-                if detail["lifecycle_state"] == "open":
-                    created += 1
-                else:
-                    pending += 1
+                if detail["lifecycle_state"] == "open": created += 1
+                else: pending += 1
                 continue
 
             incident_id = int(row["id"])
@@ -170,129 +135,56 @@ def evaluate_topology_incidents(
             detail["signal_streak"] = signal_streak
             detail["recovery_streak"] = 0
             detail["last_evaluated_marker"] = marker
-
             should_open = signal["severity"] == "critical" or signal_streak >= WARNING_OPEN_STREAK
             if lifecycle_state == "pending" and should_open:
-                lifecycle_state = "open"
-                detail["opened_at"] = current
-                created += 1
+                lifecycle_state = "open"; detail["opened_at"] = current; created += 1
             elif lifecycle_state in {"open", "recovering"}:
-                lifecycle_state = "open"
-                updated += 1
-            else:
-                pending += 1
+                lifecycle_state = "open"; updated += 1
+            else: pending += 1
             detail["lifecycle_state"] = lifecycle_state
-
             conn.execute(
-                """
-                UPDATE propagation_incidents
-                SET severity = ?, updated_at = ?, window = ?, detail_json = ?
-                WHERE id = ?
-                """,
-                (
-                    signal["severity"],
-                    current,
-                    signal["window"],
-                    json.dumps(detail, sort_keys=True),
-                    incident_id,
-                ),
+                "UPDATE propagation_incidents SET severity = ?, updated_at = ?, window = ?, detail_json = ? WHERE id = ?",
+                (signal["severity"], current, signal["window"], json.dumps(detail, sort_keys=True), incident_id),
             )
 
         for key, row in open_by_key.items():
-            if key in signals:
-                continue
+            if key in signals: continue
             incident_id = int(row["id"])
             detail = _decode_detail(row["detail_json"])
             detail.setdefault("evidence_ref", f"server:{int(row['server_id'])}")
             lifecycle_state = str(detail.get("lifecycle_state") or "open")
-            if detail.get("last_evaluated_marker") == marker:
-                continue
+            if detail.get("last_evaluated_marker") == marker: continue
             detail["last_evaluated_marker"] = marker
-
             if lifecycle_state == "pending":
                 detail["lifecycle_state"] = "suppressed"
                 _append_evidence(detail, at=current, state="suppressed", anomaly=None)
-                conn.execute(
-                    """
-                    UPDATE propagation_incidents
-                    SET updated_at = ?, resolved_at = ?, detail_json = ?
-                    WHERE id = ?
-                    """,
-                    (current, current, json.dumps(detail, sort_keys=True), incident_id),
-                )
+                conn.execute("UPDATE propagation_incidents SET updated_at = ?, resolved_at = ?, detail_json = ? WHERE id = ?", (current, current, json.dumps(detail, sort_keys=True), incident_id))
                 continue
-
             recovery_streak = int(detail.get("recovery_streak") or 0) + 1
             detail["recovery_streak"] = recovery_streak
             if recovery_streak >= RECOVERY_STREAK:
                 detail["lifecycle_state"] = "resolved"
                 _append_evidence(detail, at=current, state="resolved", anomaly=None)
-                conn.execute(
-                    """
-                    UPDATE propagation_incidents
-                    SET updated_at = ?, resolved_at = ?, detail_json = ?
-                    WHERE id = ?
-                    """,
-                    (current, current, json.dumps(detail, sort_keys=True), incident_id),
-                )
-                resolved += 1
+                conn.execute("UPDATE propagation_incidents SET updated_at = ?, resolved_at = ?, detail_json = ? WHERE id = ?", (current, current, json.dumps(detail, sort_keys=True), incident_id)); resolved += 1
             else:
                 detail["lifecycle_state"] = "recovering"
                 _append_evidence(detail, at=current, state="recovering", anomaly=None)
-                conn.execute(
-                    """
-                    UPDATE propagation_incidents
-                    SET updated_at = ?, detail_json = ?
-                    WHERE id = ?
-                    """,
-                    (current, json.dumps(detail, sort_keys=True), incident_id),
-                )
-                updated += 1
+                conn.execute("UPDATE propagation_incidents SET updated_at = ?, detail_json = ? WHERE id = ?", (current, json.dumps(detail, sort_keys=True), incident_id)); updated += 1
         conn.commit()
 
-    return {
-        "evaluated_at": current,
-        "snapshot_marker": marker,
-        "signal_count": len(signals),
-        "created_count": created,
-        "updated_count": updated,
-        "resolved_count": resolved,
-        "pending_count": pending,
-        "authoritative_topology": False,
-    }
+    return {"evaluated_at": current, "snapshot_marker": marker, "signal_count": len(signals), "created_count": created, "updated_count": updated, "resolved_count": resolved, "pending_count": pending, "authoritative_topology": False}
 
 
-def list_topology_incidents(
-    storage: Storage,
-    *,
-    include_resolved: bool = True,
-    limit: int = 200,
-) -> list[dict]:
-    if limit < 1 or limit > 1000:
-        raise ValueError("incident limit must be between 1 and 1000")
+def list_topology_incidents(storage: Storage, *, include_resolved: bool = True, limit: int = 200) -> list[dict]:
+    if limit < 1 or limit > 1000: raise ValueError("incident limit must be between 1 and 1000")
     resolved_clause = "" if include_resolved else "AND pi.resolved_at IS NULL"
     impact = topology_impact(storage)
     quality = topology_data_quality(storage)
-    impact_by_server = {
-        int(item["server_id"]): float(item["impact_score"])
-        for item in impact["nodes"]
-    }
-    quality_by_server = {
-        int(item["server_id"]): item
-        for item in quality["servers"]
-    }
+    impact_by_server = {int(item["server_id"]): float(item["impact_score"]) for item in impact["nodes"]}
+    quality_by_server = {int(item["server_id"]): item for item in quality["servers"]}
     with storage.connect() as conn:
         rows = conn.execute(
-            f"""
-            SELECT pi.id, pi.server_id, s.host, pi.kind, pi.severity,
-                   pi.started_at, pi.updated_at, pi.resolved_at, pi.window,
-                   pi.detail_json
-            FROM propagation_incidents pi
-            JOIN servers s ON s.id = pi.server_id
-            WHERE pi.kind LIKE 'topology_%' {resolved_clause}
-            ORDER BY (pi.resolved_at IS NULL) DESC, pi.started_at DESC, pi.id DESC
-            LIMIT ?
-            """,
+            f"SELECT pi.id, pi.server_id, s.host, pi.kind, pi.severity, pi.started_at, pi.updated_at, pi.resolved_at, pi.window, pi.detail_json FROM propagation_incidents pi JOIN servers s ON s.id = pi.server_id WHERE pi.kind LIKE 'topology_%' {resolved_clause} ORDER BY (pi.resolved_at IS NULL) DESC, pi.started_at DESC, pi.id DESC LIMIT ?",
             (limit,),
         ).fetchall()
     result = []
@@ -300,39 +192,20 @@ def list_topology_incidents(
         item = dict(row)
         item["detail"] = _decode_detail(item.pop("detail_json"))
         lifecycle_state = str(item["detail"].get("lifecycle_state") or "open")
-        if lifecycle_state in {"pending", "suppressed"}:
-            continue
+        if lifecycle_state in {"pending", "suppressed"}: continue
         item["status"] = lifecycle_state if item["resolved_at"] is None else "resolved"
+        item["conclusion_ref"] = f"incident:{item['id']}"
         item["impact_score"] = impact_by_server.get(int(item["server_id"]), 0.0)
         server_quality = quality_by_server.get(int(item["server_id"]))
         item["evidence_ref"] = str(item["detail"].get("evidence_ref") or f"server:{item['server_id']}")
         item["evidence_level"] = _evidence_level(server_quality, str(quality["quality_level"]))
         item["quality_score"] = int(quality["quality_score"])
         item["quality_level"] = str(quality["quality_level"])
-        item["valid_presence_coverage"] = (
-            float(server_quality["valid_presence_coverage"])
-            if server_quality is not None
-            else 0.0
-        )
-        item["freshness"] = (
-            str(server_quality["freshness"])
-            if server_quality is not None
-            else "no_valid_presence"
-        )
-        item["triage_priority_score"] = _triage_priority_score(
-            severity=str(item["severity"]),
-            status=str(item["status"]),
-            evidence_level=str(item["evidence_level"]),
-            impact_score=float(item["impact_score"]),
-        )
+        item["valid_presence_coverage"] = float(server_quality["valid_presence_coverage"]) if server_quality is not None else 0.0
+        item["freshness"] = str(server_quality["freshness"]) if server_quality is not None else "no_valid_presence"
+        item["triage_priority_score"] = _triage_priority_score(severity=str(item["severity"]), status=str(item["status"]), evidence_level=str(item["evidence_level"]), impact_score=float(item["impact_score"]))
         item["evidence_caution"] = item["evidence_level"] in {"limited", "low"}
         item["authoritative_topology"] = False
         result.append(item)
-    result.sort(
-        key=lambda item: (
-            item["status"] == "resolved",
-            -float(item["triage_priority_score"]),
-            -int(item["id"]),
-        )
-    )
+    result.sort(key=lambda item: (item["status"] == "resolved", -float(item["triage_priority_score"]), -int(item["id"])))
     return result
