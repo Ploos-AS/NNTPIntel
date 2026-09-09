@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from nntpintel.cycle import run_due_candidate_cycles
 from nntpintel.groups import inventory_groups
 from nntpintel.probe import probe
+from nntpintel.propagation_campaigns import run_due_campaigns
 from nntpintel.storage import Storage
 
 
@@ -16,6 +17,7 @@ class SchedulerConfig:
     batch_size: int = 20
     group_batch_size: int = 5
     cycle_batch_size: int = 1
+    campaign_batch_size: int = 2
     max_backoff_seconds: int = 21600
     max_cycle_backoff_seconds: int = 86400
 
@@ -106,6 +108,7 @@ def run_once(storage: Storage, *, config: SchedulerConfig | None = None) -> int:
         limit=config.cycle_batch_size,
         max_backoff_seconds=config.max_cycle_backoff_seconds,
     )
+    run_due_campaigns(storage, limit=config.campaign_batch_size)
     return completed
 
 
