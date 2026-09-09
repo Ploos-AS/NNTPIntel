@@ -12,46 +12,19 @@ from nntpintel.propagation_cycle import (
     run_propagation_cycle,
 )
 from nntpintel.propagation_probe import PresenceProbeResult, stat_message_id
-from nntpintel.storage import Storage
+from nntpintel.storage import SCHEMA_VERSION, Storage
 
 MIN_CAMPAIGN_TTL_SECONDS = 300
 MAX_CAMPAIGN_TTL_SECONDS = 604800
 MAX_CAMPAIGNS_PER_SCHEDULER_PASS = 5
 
-CAMPAIGN_SQL = """
-CREATE TABLE IF NOT EXISTS propagation_campaigns (
-    id INTEGER PRIMARY KEY,
-    article_id INTEGER NOT NULL REFERENCES propagation_articles(id) ON DELETE CASCADE,
-    status TEXT NOT NULL DEFAULT 'active',
-    interval_seconds INTEGER NOT NULL DEFAULT 300,
-    timeout_seconds REAL NOT NULL DEFAULT 5.0,
-    max_backoff_seconds INTEGER NOT NULL DEFAULT 21600,
-    stop_after_visible INTEGER NOT NULL,
-    created_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    completed_at TEXT,
-    UNIQUE(article_id, status)
-);
-
-CREATE TABLE IF NOT EXISTS propagation_campaign_endpoints (
-    campaign_id INTEGER NOT NULL REFERENCES propagation_campaigns(id) ON DELETE CASCADE,
-    endpoint_id INTEGER NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
-    PRIMARY KEY(campaign_id, endpoint_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_propagation_campaigns_status_expiry
-ON propagation_campaigns(status, expires_at);
-"""
-
 
 def ensure_campaign_schema(storage: Storage) -> None:
-    """Ensure M6.3 campaign tables exist.
-
-    These tables are isolated here until the next central schema consolidation.
-    """
+    """Verify that the central Storage schema owns the campaign tables."""
     with storage.connect() as conn:
-        conn.executescript(CAMPAIGN_SQL)
-        conn.commit()
+        row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+    if row is None or int(row["version"]) != SCHEMA_VERSION:
+        raise RuntimeError("propagation campaign schema is not initialized")
 
 
 def _as_utc(value: str) -> datetime:
