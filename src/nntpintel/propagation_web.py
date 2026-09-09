@@ -118,7 +118,7 @@ def propagation_detail_page(storage: Storage, article_id: int) -> str | None:
         "<tr>"
         f'<td>{escape(str(item["observed_at"]))}</td>'
         f'<td>{escape(str(item["host"]))}:{item["port"]}</td>'
-        f'<td class={"ok" if item["present"] else "bad"}>{"present" if item["present"] else "not present"}</td>'
+        f'<td class={"ok" if item["state"] == "present" else "bad"}>{escape(str(item["state"]))}</td>'
         f'<td>{escape(str(item["method"]))}</td><td>{item["response_code"] or ""}</td>'
         f'<td>{escape(str(item["error"] or ""))}</td>'
         "</tr>"
