@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from html import escape
+from urllib.parse import quote
 
 from nntpintel.propagation_topology_explain import explain_topology_ref
 from nntpintel.storage import Storage
@@ -73,4 +74,5 @@ def explain_page(storage: Storage, evidence_ref: str) -> str | None:
             ("Gateways", item["gateway_server_count"]),
             ("Members", item["members"]),
         ]) + "</tbody></table>"
-    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Topology explain - NNTPIntel</title><style>:root{{color-scheme:dark;font-family:system-ui,sans-serif}}body{{margin:0;background:#101418;color:#e8edf2}}header{{padding:1.5rem 2rem;background:#182028;border-bottom:1px solid #2d3944}}main{{padding:1.5rem 2rem 3rem;max-width:1300px;margin:auto}}a{{color:#9fd3ff}}table{{width:100%;border-collapse:collapse;background:#182028;border:1px solid #2d3944;margin:1rem 0 2rem}}th,td{{text-align:left;padding:.65rem;border-bottom:1px solid #2d3944}}th{{color:#a8b5c2}}.warning{{border:1px solid #8a6d1d;background:#2a2412;padding:1rem;border-radius:.5rem}}</style></head><body><header><h1>NNTPIntel</h1></header><main><p><a href="/web/propagation/topology/evidence">← Evidence provenance</a></p><h2>Why does NNTPIntel believe this?</h2><p><code>{escape(evidence_ref)}</code></p><p class="warning"><strong>Inference only.</strong> {escape(str(data["why"]))}</p>{details}<h3>Limitations</h3><ul>{limitations}</ul></main></body></html>"""
+    export_href = "/propagation/topology/export/" + quote(evidence_ref, safe="")
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Topology explain - NNTPIntel</title><style>:root{{color-scheme:dark;font-family:system-ui,sans-serif}}body{{margin:0;background:#101418;color:#e8edf2}}header{{padding:1.5rem 2rem;background:#182028;border-bottom:1px solid #2d3944}}main{{padding:1.5rem 2rem 3rem;max-width:1300px;margin:auto}}a{{color:#9fd3ff}}table{{width:100%;border-collapse:collapse;background:#182028;border:1px solid #2d3944;margin:1rem 0 2rem}}th,td{{text-align:left;padding:.65rem;border-bottom:1px solid #2d3944}}th{{color:#a8b5c2}}.warning{{border:1px solid #8a6d1d;background:#2a2412;padding:1rem;border-radius:.5rem}}</style></head><body><header><h1>NNTPIntel</h1></header><main><p><a href="/web/propagation/topology/evidence">← Evidence provenance</a> · <a href="{export_href}" download>Export evidence bundle (JSON)</a></p><h2>Why does NNTPIntel believe this?</h2><p><code>{escape(evidence_ref)}</code></p><p class="warning"><strong>Inference only.</strong> {escape(str(data["why"]))}</p>{details}<h3>Limitations</h3><ul>{limitations}</ul></main></body></html>"""
