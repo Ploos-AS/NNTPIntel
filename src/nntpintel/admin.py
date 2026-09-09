@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from nntpintel.api import serve
+from nntpintel.discovery import import_seeds, list_sources, set_server_enabled
 from nntpintel.scheduler import SchedulerConfig, run_forever, run_once
 from nntpintel.storage import Storage
 
@@ -21,6 +22,17 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--starttls", action="store_true")
     add.add_argument("--interval", type=int, default=900)
     add.add_argument("--timeout", type=float, default=10.0)
+
+    seed_import = sub.add_parser("import-seeds", help="import NNTP seeds from a text file")
+    seed_import.add_argument("file", type=Path)
+    seed_import.add_argument("--source", required=True, help="stable source/provenance name")
+    seed_import.add_argument("--source-ref", help="URL or other human-readable source reference")
+
+    sub.add_parser("list-sources", help="list discovery sources and imported server counts")
+
+    server_state = sub.add_parser("set-server-enabled", help="enable or disable a discovered server")
+    server_state.add_argument("host")
+    server_state.add_argument("state", choices=["on", "off"])
 
     sub.add_parser("list-endpoints", help="list configured endpoints")
     sub.add_parser("run-once", help="probe all currently due endpoints once")
@@ -51,6 +63,28 @@ def main(argv: list[str] | None = None) -> int:
             timeout_seconds=args.timeout,
         )
         print(endpoint_id)
+        return 0
+
+    if args.command == "import-seeds":
+        lines = args.file.read_text(encoding="utf-8").splitlines()
+        result = import_seeds(
+            storage,
+            lines,
+            source=args.source,
+            source_ref=args.source_ref,
+        )
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "list-sources":
+        for row in list_sources(storage):
+            print(json.dumps(row, sort_keys=True))
+        return 0
+
+    if args.command == "set-server-enabled":
+        changed = set_server_enabled(storage, args.host, args.state == "on")
+        if not changed:
+            raise SystemExit(f"unknown server: {args.host}")
         return 0
 
     if args.command == "list-endpoints":
