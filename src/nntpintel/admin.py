@@ -12,7 +12,13 @@ from nntpintel.candidates import (
     qualify_candidates,
     set_candidate_status,
 )
-from nntpintel.cycle import list_cycle_runs, run_candidate_cycle
+from nntpintel.cycle import (
+    configure_cycle_schedule,
+    list_cycle_runs,
+    list_cycle_schedules,
+    run_candidate_cycle,
+    run_due_candidate_cycles,
+)
 from nntpintel.discovery import (
     BUILTIN_SOURCES,
     import_seeds,
@@ -69,6 +75,22 @@ def build_parser() -> argparse.ArgumentParser:
     cycle_runs = sub.add_parser("list-cycle-runs", help="list recorded candidate cycle history")
     cycle_runs.add_argument("--source")
     cycle_runs.add_argument("--limit", type=int, default=100)
+
+    cycle_schedule = sub.add_parser(
+        "schedule-cycle-source",
+        help="persist conservative cycle cadence for a curated discovery source",
+    )
+    cycle_schedule.add_argument("name", choices=sorted(BUILTIN_SOURCES))
+    cycle_schedule.add_argument("--interval", type=int, default=21600)
+    cycle_schedule.add_argument("--limit", type=int, default=3)
+    cycle_schedule.add_argument("--timeout", type=float, default=5.0)
+    cycle_schedule.add_argument("--disabled", action="store_true")
+    cycle_schedule.add_argument("--run-now", action="store_true")
+
+    sub.add_parser("list-cycle-schedules", help="list persistent candidate cycle schedules")
+
+    due_cycles = sub.add_parser("run-due-cycles", help="run due candidate cycles once")
+    due_cycles.add_argument("--limit", type=int, default=1)
 
     qualify = sub.add_parser("qualify-candidates", help="safely qualify disabled discovery candidates")
     qualify.add_argument("--limit", type=int, default=5)
@@ -175,6 +197,36 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
         for row in rows:
+            print(json.dumps(row, sort_keys=True))
+        return 0
+
+    if args.command == "schedule-cycle-source":
+        try:
+            result = configure_cycle_schedule(
+                storage,
+                args.name,
+                interval_seconds=args.interval,
+                candidate_limit=args.limit,
+                timeout_seconds=args.timeout,
+                enabled=not args.disabled,
+                run_now=args.run_now,
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "list-cycle-schedules":
+        for row in list_cycle_schedules(storage):
+            print(json.dumps(row, sort_keys=True))
+        return 0
+
+    if args.command == "run-due-cycles":
+        try:
+            results = run_due_candidate_cycles(storage, limit=args.limit)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        for row in results:
             print(json.dumps(row, sort_keys=True))
         return 0
 
