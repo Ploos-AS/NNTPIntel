@@ -9,7 +9,7 @@ from pathlib import Path
 from nntpintel.groups import GroupInventory
 from nntpintel.probe import ProbeObservation
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 SCHEMA_SQL = """
@@ -94,6 +94,13 @@ CREATE TABLE IF NOT EXISTS group_events (
     detail_json TEXT NOT NULL DEFAULT '{}'
 );
 
+CREATE TABLE IF NOT EXISTS group_inventory_schedule (
+    endpoint_id INTEGER PRIMARY KEY REFERENCES endpoints(id) ON DELETE CASCADE,
+    interval_seconds INTEGER NOT NULL DEFAULT 21600,
+    next_inventory_at TEXT,
+    last_inventory_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_observations_endpoint_time
 ON observations(endpoint_id, observed_at DESC);
 
@@ -105,6 +112,9 @@ ON group_snapshots(newsgroup_id, observed_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_group_events_endpoint_time
 ON group_events(endpoint_id, observed_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_group_inventory_due
+ON group_inventory_schedule(next_inventory_at);
 """
 
 
@@ -126,12 +136,18 @@ class Storage:
             row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
             if row is None:
                 conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
-            elif row["version"] == 1:
+            elif row["version"] in {1, 2}:
                 conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
             elif row["version"] != SCHEMA_VERSION:
                 raise RuntimeError(
                     f"unsupported schema version {row['version']}; expected {SCHEMA_VERSION}"
                 )
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO group_inventory_schedule(endpoint_id, next_inventory_at)
+                SELECT id, CURRENT_TIMESTAMP FROM endpoints
+                """
+            )
             conn.commit()
 
     def ensure_endpoint(
@@ -143,6 +159,7 @@ class Storage:
         starttls: bool = False,
         interval_seconds: int = 900,
         timeout_seconds: float = 10.0,
+        group_interval_seconds: int = 21600,
     ) -> int:
         with closing(self.connect()) as conn:
             conn.execute("INSERT OR IGNORE INTO servers(host) VALUES (?)", (host,))
@@ -172,8 +189,17 @@ class Storage:
                 """,
                 (server_id, port, transport, int(starttls)),
             ).fetchone()
+            endpoint_id = int(row["id"])
+            conn.execute(
+                """
+                INSERT INTO group_inventory_schedule(endpoint_id, interval_seconds, next_inventory_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(endpoint_id) DO NOTHING
+                """,
+                (endpoint_id, group_interval_seconds),
+            )
             conn.commit()
-            return int(row["id"])
+            return endpoint_id
 
     def due_endpoints(self, now_iso: str, *, limit: int = 100) -> list[sqlite3.Row]:
         with closing(self.connect()) as conn:
@@ -187,6 +213,26 @@ class Storage:
                       AND s.enabled = 1
                       AND (e.next_probe_at IS NULL OR e.next_probe_at <= ?)
                     ORDER BY COALESCE(e.next_probe_at, '') ASC, e.id ASC
+                    LIMIT ?
+                    """,
+                    (now_iso, limit),
+                ).fetchall()
+            )
+
+    def due_group_endpoints(self, now_iso: str, *, limit: int = 20) -> list[sqlite3.Row]:
+        with closing(self.connect()) as conn:
+            return list(
+                conn.execute(
+                    """
+                    SELECT e.*, s.host, g.interval_seconds AS group_interval_seconds,
+                           g.next_inventory_at, g.last_inventory_at
+                    FROM group_inventory_schedule g
+                    JOIN endpoints e ON e.id = g.endpoint_id
+                    JOIN servers s ON s.id = e.server_id
+                    WHERE e.enabled = 1
+                      AND s.enabled = 1
+                      AND (g.next_inventory_at IS NULL OR g.next_inventory_at <= ?)
+                    ORDER BY COALESCE(g.next_inventory_at, '') ASC, e.id ASC
                     LIMIT ?
                     """,
                     (now_iso, limit),
@@ -246,7 +292,6 @@ class Storage:
                 previous = {row["name"]: row for row in rows}
 
             current_names = {group.name for group in inventory.groups}
-            ids: dict[str, int] = {}
             for group in inventory.groups:
                 conn.execute(
                     """
@@ -272,7 +317,6 @@ class Storage:
                         "SELECT id FROM newsgroups WHERE name = ?", (group.name,)
                     ).fetchone()["id"]
                 )
-                ids[group.name] = newsgroup_id
                 conn.execute(
                     """
                     INSERT INTO group_snapshots(
@@ -334,6 +378,24 @@ class Storage:
                 )
             conn.commit()
         return len(inventory.groups)
+
+    def update_group_schedule(
+        self,
+        endpoint_id: int,
+        *,
+        last_inventory_at: str,
+        next_inventory_at: str,
+    ) -> None:
+        with closing(self.connect()) as conn:
+            conn.execute(
+                """
+                UPDATE group_inventory_schedule
+                SET last_inventory_at = ?, next_inventory_at = ?
+                WHERE endpoint_id = ?
+                """,
+                (last_inventory_at, next_inventory_at, endpoint_id),
+            )
+            conn.commit()
 
     def group_count(self) -> int:
         with closing(self.connect()) as conn:
