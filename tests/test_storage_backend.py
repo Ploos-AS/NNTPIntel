@@ -7,7 +7,7 @@ from nntpintel.storage_backend import (
     open_storage,
     parse_database_target,
 )
-from nntpintel.storage_migrations import apply_postgres_migrations
+from nntpintel.storage_migrations import POSTGRES_MIGRATIONS, apply_postgres_migrations
 
 
 def test_parse_database_target_supports_paths_and_urls(tmp_path):
@@ -58,9 +58,11 @@ class FakeConnection:
         self.applied: set[int] = set()
         self.inserted: list[tuple[int, str]] = []
         self.committed = False
+        self.executed_sql: list[str] = []
 
     def execute(self, sql, params=None):
         normalized = " ".join(sql.split())
+        self.executed_sql.append(normalized)
         if normalized.startswith("SELECT version FROM nntpintel_schema_version"):
             return FakeResult([{"version": version} for version in sorted(self.applied)])
         if normalized.startswith("INSERT INTO nntpintel_schema_version"):
@@ -83,11 +85,42 @@ class FakeResult:
 
 def test_postgres_migrations_are_idempotent():
     conn = FakeConnection()
-    assert apply_postgres_migrations(conn) == 1
-    assert conn.inserted == [(1, "bootstrap schema metadata")]
+    assert apply_postgres_migrations(conn) == 2
+    assert conn.inserted == [
+        (1, "bootstrap schema metadata"),
+        (2, "production core schema and observation partitions"),
+    ]
     assert conn.committed is True
 
     conn.committed = False
-    assert apply_postgres_migrations(conn) == 1
-    assert conn.inserted == [(1, "bootstrap schema metadata")]
+    assert apply_postgres_migrations(conn) == 2
+    assert conn.inserted == [
+        (1, "bootstrap schema metadata"),
+        (2, "production core schema and observation partitions"),
+    ]
     assert conn.committed is True
+
+
+def test_postgres_production_schema_uses_timestamptz_jsonb_and_range_partitioning():
+    migration = POSTGRES_MIGRATIONS[1]
+    sql = " ".join(migration.sql.split())
+
+    assert migration.version == 2
+    assert "TIMESTAMPTZ" in sql
+    assert "JSONB" in sql
+    for table in (
+        "observations",
+        "group_snapshots",
+        "group_events",
+        "propagation_observations",
+    ):
+        assert f"CREATE TABLE IF NOT EXISTS {table}" in sql
+        assert "PARTITION BY RANGE (observed_at)" in sql
+        assert f"CREATE TABLE IF NOT EXISTS {table}_default PARTITION OF {table} DEFAULT" in sql
+
+
+def test_partitioned_primary_and_unique_keys_include_observed_at():
+    sql = " ".join(POSTGRES_MIGRATIONS[1].sql.split())
+    assert sql.count("PRIMARY KEY(id, observed_at)") == 4
+    assert "UNIQUE(endpoint_id, newsgroup_id, observed_at)" in sql
+    assert "UNIQUE(article_id, endpoint_id, observed_at)" in sql
