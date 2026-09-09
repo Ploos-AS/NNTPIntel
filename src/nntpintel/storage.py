@@ -9,7 +9,7 @@ from pathlib import Path
 from nntpintel.groups import GroupInventory
 from nntpintel.probe import ProbeObservation
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 SCHEMA_SQL = """
@@ -201,6 +201,20 @@ CREATE TABLE IF NOT EXISTS propagation_campaign_endpoints (
     PRIMARY KEY(campaign_id, endpoint_id)
 );
 
+CREATE TABLE IF NOT EXISTS propagation_incidents (
+    id INTEGER PRIMARY KEY,
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    resolved_at TEXT,
+    window TEXT NOT NULL,
+    metric_value REAL,
+    baseline_value REAL,
+    detail_json TEXT NOT NULL DEFAULT '{}'
+);
+
 CREATE INDEX IF NOT EXISTS idx_observations_endpoint_time
 ON observations(endpoint_id, observed_at DESC);
 
@@ -233,6 +247,13 @@ ON propagation_observations(endpoint_id, observed_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_propagation_campaigns_status_expiry
 ON propagation_campaigns(status, expires_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_propagation_incidents_open
+ON propagation_incidents(server_id, kind)
+WHERE resolved_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_propagation_incidents_status_time
+ON propagation_incidents(resolved_at, started_at DESC);
 """
 
 
@@ -258,7 +279,7 @@ class Storage:
             row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
             if row is None:
                 conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
-            elif row["version"] in {1, 2, 3, 4, 5}:
+            elif row["version"] in {1, 2, 3, 4, 5, 6}:
                 conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
             elif row["version"] != SCHEMA_VERSION:
                 raise RuntimeError(
