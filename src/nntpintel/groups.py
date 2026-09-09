@@ -29,6 +29,7 @@ class GroupInventory:
     port: int
     transport: str
     groups: list[GroupRecord] = field(default_factory=list)
+    new_groups: list[str] = field(default_factory=list)
     error: str | None = None
 
 
@@ -68,12 +69,18 @@ def _command_multiline(stream: BinaryIO, command: str, expected: set[int]) -> li
     return _read_multiline(stream)
 
 
+def _newgroups_command(since: datetime) -> str:
+    utc = since.astimezone(UTC)
+    return f"NEWGROUPS {utc:%y%m%d %H%M%S} GMT"
+
+
 def inventory_groups(
     host: str,
     *,
     port: int = 119,
     implicit_tls: bool = False,
     timeout: float = 10.0,
+    newgroups_since: datetime | None = None,
 ) -> GroupInventory:
     observation = GroupInventory(
         observed_at=datetime.now(UTC).isoformat(),
@@ -105,6 +112,15 @@ def inventory_groups(
             descriptions = []
         _apply_descriptions(groups, descriptions)
         observation.groups = sorted(groups.values(), key=lambda item: item.name)
+
+        if newgroups_since is not None:
+            try:
+                new_lines = _command_multiline(
+                    stream, _newgroups_command(newgroups_since), {231}
+                )
+                observation.new_groups = sorted(_parse_active(new_lines))
+            except NNTPProtocolError:
+                observation.new_groups = []
 
         try:
             _send(stream, "QUIT")
