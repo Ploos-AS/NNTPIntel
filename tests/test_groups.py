@@ -87,7 +87,7 @@ def test_group_inventory_runtime_and_persistence(tmp_path):
     assert snapshots[1]["description"] == "Python discussion"
 
 
-def test_schema_v1_database_migrates_to_v3(tmp_path):
+def test_schema_v1_database_migrates_to_v4(tmp_path):
     path = tmp_path / "legacy.db"
     with sqlite3.connect(path) as conn:
         conn.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)")
@@ -102,13 +102,19 @@ def test_schema_v1_database_migrates_to_v3(tmp_path):
             for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
         }
 
-    assert version == 3
+    assert version == 4
     assert {
         "hierarchies",
         "newsgroups",
         "group_snapshots",
         "group_events",
         "group_inventory_schedule",
+        "discovery_sources",
+        "server_sources",
+        "candidate_qualifications",
+        "candidate_decisions",
+        "candidate_cycle_runs",
+        "candidate_cycle_schedule",
     } <= tables
 
 
