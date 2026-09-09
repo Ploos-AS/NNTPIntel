@@ -111,10 +111,19 @@ def evaluate_propagation_incidents(
     resolved = 0
 
     with storage.connect() as conn:
+        placeholders = ",".join("?" for _ in INCIDENT_KINDS)
         open_rows = conn.execute(
-            "SELECT id, server_id, kind FROM propagation_incidents WHERE resolved_at IS NULL"
+            f"""
+            SELECT id, server_id, kind
+            FROM propagation_incidents
+            WHERE resolved_at IS NULL AND kind IN ({placeholders})
+            """,
+            tuple(sorted(INCIDENT_KINDS)),
         ).fetchall()
-        open_by_key = {(int(row["server_id"]), str(row["kind"])): int(row["id"]) for row in open_rows}
+        open_by_key = {
+            (int(row["server_id"]), str(row["kind"])): int(row["id"])
+            for row in open_rows
+        }
 
         for key, signal in signals.items():
             server_id, kind = key
@@ -192,7 +201,9 @@ def list_propagation_incidents(
 ) -> list[dict]:
     if limit < 1 or limit > 1000:
         raise ValueError("incident limit must be between 1 and 1000")
-    where = "" if include_resolved else "WHERE pi.resolved_at IS NULL"
+    resolved_clause = "" if include_resolved else "AND pi.resolved_at IS NULL"
+    placeholders = ",".join("?" for _ in INCIDENT_KINDS)
+    params = (*tuple(sorted(INCIDENT_KINDS)), limit)
     with storage.connect() as conn:
         rows = conn.execute(
             f"""
@@ -201,11 +212,11 @@ def list_propagation_incidents(
                    pi.metric_value, pi.baseline_value, pi.detail_json
             FROM propagation_incidents pi
             JOIN servers s ON s.id = pi.server_id
-            {where}
+            WHERE pi.kind IN ({placeholders}) {resolved_clause}
             ORDER BY (pi.resolved_at IS NULL) DESC, pi.started_at DESC, pi.id DESC
             LIMIT ?
             """,
-            (limit,),
+            params,
         ).fetchall()
     result: list[dict] = []
     for row in rows:
