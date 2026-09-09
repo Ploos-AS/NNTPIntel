@@ -158,3 +158,66 @@ def compare_evidence_snapshots(storage: Storage, before_id: int, after_id: int) 
     result = compare_evidence_bundles(before["bundle"], after["bundle"])
     result["snapshot_ids"] = {"before": before_id, "after": after_id}
     return result
+
+
+def evidence_snapshot_timeline(
+    storage: Storage,
+    conclusion_ref: str,
+    *,
+    since: str | None = None,
+    limit: int = 100,
+) -> dict:
+    _ensure_schema(storage)
+    limit = max(1, min(int(limit), 500))
+    params: list[object] = [conclusion_ref]
+    where = "conclusion_ref = ?"
+    if since:
+        where += " AND captured_at >= ?"
+        params.append(since)
+    params.append(limit + 1)
+
+    with storage.connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT id, conclusion_ref, conclusion_type, fingerprint, captured_at, bundle_json
+            FROM topology_evidence_snapshots
+            WHERE {where}
+            ORDER BY captured_at ASC, id ASC
+            LIMIT ?
+            """,
+            tuple(params),
+        ).fetchall()
+
+    entries: list[dict] = []
+    previous: dict | None = None
+    for row in rows[:limit]:
+        bundle = json.loads(row["bundle_json"])
+        summary = None
+        if previous is not None:
+            diff = compare_evidence_bundles(previous["bundle"], bundle)
+            summary = {
+                "change_count": diff["change_count"],
+                "changed_sections": diff["changed_sections"],
+            }
+        current = {
+            "snapshot_id": int(row["id"]),
+            "captured_at": row["captured_at"],
+            "fingerprint": row["fingerprint"],
+            "conclusion_type": row["conclusion_type"],
+            "change_from_previous": summary,
+        }
+        entries.append(current)
+        previous = {"bundle": bundle}
+
+    return {
+        "model": "nntpintel_topology_evidence_snapshot_timeline",
+        "conclusion_ref": conclusion_ref,
+        "since": since,
+        "timeline_count": len(entries),
+        "has_more": len(rows) > limit,
+        "timeline": entries,
+        "limitations": [
+            "The timeline records changes in NNTPIntel evidence bundles, not proven real-world topology changes.",
+            "Snapshots are fingerprint-deduplicated, so unchanged states are intentionally omitted.",
+        ],
+    }
