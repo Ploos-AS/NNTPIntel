@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from nntpintel.rollups import rebuild_server_observation_rollup_chain
 from nntpintel.storage_backend import PostgresStorage
@@ -119,8 +119,8 @@ def main() -> None:
         ).fetchone()["count"]
         assert count == 4, count
 
-        start = datetime(2026, 9, 9, 20, 0, tzinfo=timezone.utc)
-        end = datetime(2026, 9, 10, 0, 0, tzinfo=timezone.utc)
+        start = datetime(2026, 9, 9, 20, 0, tzinfo=UTC)
+        end = datetime(2026, 9, 10, 0, 0, tzinfo=UTC)
         hourly, daily = rebuild_server_observation_rollup_chain(conn, start=start, end=end)
         assert hourly.rows_written == 2, hourly
         assert daily.rows_written == 1, daily
