@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime
 
 from nntpintel.propagation_topology_anomalies import topology_anomalies
+from nntpintel.propagation_topology_impact import topology_impact
 from nntpintel.storage import Storage
 
 TOPOLOGY_INCIDENT_PREFIX = "topology_"
@@ -239,6 +240,11 @@ def list_topology_incidents(
     if limit < 1 or limit > 1000:
         raise ValueError("incident limit must be between 1 and 1000")
     resolved_clause = "" if include_resolved else "AND pi.resolved_at IS NULL"
+    impact = topology_impact(storage)
+    impact_by_server = {
+        int(item["server_id"]): float(item["impact_score"])
+        for item in impact["nodes"]
+    }
     with storage.connect() as conn:
         rows = conn.execute(
             f"""
@@ -261,6 +267,14 @@ def list_topology_incidents(
         if lifecycle_state in {"pending", "suppressed"}:
             continue
         item["status"] = lifecycle_state if item["resolved_at"] is None else "resolved"
+        item["impact_score"] = impact_by_server.get(int(item["server_id"]), 0.0)
         item["authoritative_topology"] = False
         result.append(item)
+    result.sort(
+        key=lambda item: (
+            item["status"] == "resolved",
+            -float(item["impact_score"]),
+            -int(item["id"]),
+        )
+    )
     return result
