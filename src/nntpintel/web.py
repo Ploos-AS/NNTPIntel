@@ -32,6 +32,12 @@ th { color: #a8b5c2; }
 .status-bad { color: #ff9b9b; }
 .muted { color: #8f9ba6; }
 code { color: #c9e5ff; white-space: pre-wrap; overflow-wrap: anywhere; }
+.timeline { display: flex; gap: 3px; align-items: end; min-height: 90px; padding: 1rem; background: #182028; border: 1px solid #2d3944; border-radius: .6rem; overflow-x: auto; }
+.latency-bar { width: 10px; min-width: 10px; background: #7fb9e8; border-radius: 2px 2px 0 0; }
+.state-strip { display: flex; gap: 2px; padding: .7rem; background: #182028; border: 1px solid #2d3944; border-radius: .6rem; overflow-x: auto; }
+.state { width: 14px; min-width: 14px; height: 14px; border-radius: 2px; }
+.state-ok { background: #56b85a; }
+.state-bad { background: #d85b5b; }
 """
 
 
@@ -125,6 +131,54 @@ def servers_page(storage: Storage) -> str:
     return _page("Servers", body)
 
 
+def _availability_visuals(server: dict) -> str:
+    stats = server["availability"]
+    observations = list(reversed(server["observations"]))
+    state_strip = "".join(
+        f'<span class="state {'state-ok' if item['success'] else 'state-bad'}" '
+        f'title="{escape(str(item["observed_at"]))}: {'ok' if item['success'] else 'fail'}"></span>'
+        for item in observations
+    ) or '<span class="muted">No availability samples yet.</span>'
+
+    latency_values = [
+        float(item["connect_ms"])
+        for item in observations
+        if item["connect_ms"] is not None
+    ]
+    max_latency = max(latency_values) if latency_values else 1.0
+    latency_bars = "".join(
+        f'<span class="latency-bar" style="height:{max(4, int((float(item["connect_ms"]) / max_latency) * 70))}px" '
+        f'title="{escape(str(item["observed_at"]))}: {item["connect_ms"]} ms"></span>'
+        for item in observations
+        if item["connect_ms"] is not None
+    ) or '<span class="muted">No latency samples yet.</span>'
+
+    transition_rows = "".join(
+        "<tr>"
+        f"<td>{escape(str(item['observed_at']))}</td>"
+        f"<td>{item['port']}</td>"
+        f"<td class={'status-ok' if item['event'] == 'recovered' else 'status-bad'}>{escape(item['event'])}</td>"
+        "</tr>"
+        for item in stats["transitions"]
+    ) or '<tr><td colspan="3" class="muted">No failure/recovery transitions yet.</td></tr>'
+
+    return f"""
+<section>
+  <h2>Availability history</h2>
+  <div class="state-strip">{state_strip}</div>
+</section>
+<section>
+  <h2>Latency trend</h2>
+  <div class="timeline">{latency_bars}</div>
+</section>
+<section>
+  <h2>Failure / recovery timeline</h2>
+  <table><thead><tr><th>Observed</th><th>Port</th><th>State change</th></tr></thead>
+  <tbody>{transition_rows}</tbody></table>
+</section>
+"""
+
+
 def server_detail_page(storage: Storage, server_id: int) -> str | None:
     server = get_server(storage, server_id)
     if server is None:
@@ -168,9 +222,12 @@ def server_detail_page(storage: Storage, server_id: int) -> str | None:
     ) or '<tr><td colspan="5" class="muted">No group events recorded yet.</td></tr>'
 
     latest = server["observations"][0] if server["observations"] else None
+    availability = server["availability"]
     cards = [
         ("Endpoints", len(server["endpoints"])),
-        ("Observations", len(server["observations"])),
+        ("Observations", availability["sample_count"]),
+        ("Availability %", "" if availability["availability_percent"] is None else availability["availability_percent"]),
+        ("Average latency ms", "" if availability["average_latency_ms"] is None else availability["average_latency_ms"]),
         ("Latest status", "ok" if latest and latest["success"] else "unknown" if latest is None else "fail"),
         ("Latest latency ms", "" if latest is None or latest["connect_ms"] is None else latest["connect_ms"]),
     ]
@@ -185,6 +242,7 @@ def server_detail_page(storage: Storage, server_id: int) -> str | None:
   <h2>{escape(str(server['host']))}</h2>
   <div class="cards">{card_html}</div>
 </section>
+{_availability_visuals(server)}
 <section><h2>Endpoints</h2>
 <table><thead><tr><th>Port</th><th>Transport</th><th>STARTTLS</th><th>Failures</th><th>Last probe</th><th>Next probe</th></tr></thead>
 <tbody>{endpoint_rows}</tbody></table></section>
