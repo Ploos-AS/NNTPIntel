@@ -1,3 +1,4 @@
+# ruff: noqa: I001
 import sqlite3
 
 from nntpintel.storage import SCHEMA_VERSION, Storage
