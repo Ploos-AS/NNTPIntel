@@ -9,7 +9,7 @@ from nntpintel.propagation import (
 from nntpintel.storage import SCHEMA_VERSION, Storage
 
 
-def test_schema_v6_contains_propagation_tables(tmp_path):
+def test_schema_v7_contains_propagation_tables(tmp_path):
     storage = Storage(tmp_path / "nntpintel.db")
     with storage.connect() as conn:
         version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
@@ -17,12 +17,13 @@ def test_schema_v6_contains_propagation_tables(tmp_path):
             row["name"]
             for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
-    assert version == SCHEMA_VERSION == 6
+    assert version == SCHEMA_VERSION == 7
     assert {
         "propagation_articles",
         "propagation_observations",
         "propagation_campaigns",
         "propagation_campaign_endpoints",
+        "propagation_incidents",
     } <= tables
 
 
