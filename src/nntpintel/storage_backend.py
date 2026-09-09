@@ -40,7 +40,7 @@ def parse_database_target(value: str | Path) -> DatabaseTarget:
         if path in {"", "/"}:
             raise ValueError("sqlite database URL requires a path")
         if text.startswith("sqlite:////"):
-            sqlite_path = path
+            sqlite_path = "/" + path.lstrip("/")
         else:
             sqlite_path = path.lstrip("/")
         return DatabaseTarget("sqlite", sqlite_path)
