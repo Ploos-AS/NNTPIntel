@@ -5,6 +5,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
+from nntpintel.discovery import list_sources
 from nntpintel.storage import Storage
 
 
@@ -288,6 +289,9 @@ class APIHandler(BaseHTTPRequestHandler):
             return
         if path == "/events":
             self._send_json(list_events(self.storage))
+            return
+        if path == "/sources":
+            self._send_json(list_sources(self.storage))
             return
         if path.startswith("/servers/"):
             try:
