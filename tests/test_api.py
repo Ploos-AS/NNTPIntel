@@ -15,7 +15,13 @@ def _get_json(url: str) -> object:
         return json.load(response)
 
 
-def test_api_lists_core_resources_and_server_detail(tmp_path):
+def _get_html(url: str) -> str:
+    with urlopen(url, timeout=2) as response:
+        assert response.headers.get_content_type() == "text/html"
+        return response.read().decode("utf-8")
+
+
+def _populated_storage(tmp_path) -> tuple[Storage, GroupInventory]:
     storage = Storage(tmp_path / "nntpintel.db")
     endpoint_id = storage.ensure_endpoint("news.example.test", port=119)
     inventory = GroupInventory(
@@ -34,6 +40,11 @@ def test_api_lists_core_resources_and_server_detail(tmp_path):
         ],
     )
     storage.record_group_inventory(endpoint_id, inventory)
+    return storage, inventory
+
+
+def test_api_lists_core_resources_and_server_detail(tmp_path):
+    storage, inventory = _populated_storage(tmp_path)
 
     server = make_server(storage, "127.0.0.1", 0)
     host, port = server.server_address
@@ -76,6 +87,45 @@ def test_api_lists_core_resources_and_server_detail(tmp_path):
         detail = _get_json(f"{base}/servers/{server_id}")
         assert detail["host"] == "news.example.test"
         assert detail["endpoints"][0]["port"] == 119
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_web_dashboard_renders_observed_data(tmp_path):
+    storage, _ = _populated_storage(tmp_path)
+    server = make_server(storage, "127.0.0.1", 0)
+    host, port = server.server_address
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://{host}:{port}"
+
+    try:
+        dashboard = _get_html(f"{base}/")
+        assert "NNTPIntel" in dashboard
+        assert "Overview" in dashboard
+        assert "news.example.test" in dashboard
+        assert "comp.lang.python" in dashboard
+        assert "appeared" in dashboard
+        assert 'href="/web/servers"' in dashboard
+
+        servers = _get_html(f"{base}/web/servers")
+        assert "Servers and endpoints" in servers
+        assert "news.example.test" in servers
+        assert "119" in servers
+
+        groups = _get_html(f"{base}/web/groups")
+        assert "Newsgroups" in groups
+        assert "comp.lang.python" in groups
+        assert "Python discussion" in groups
+        assert ">100<" in groups
+        assert ">123<" in groups
+
+        events = _get_html(f"{base}/web/events")
+        assert "Group events" in events
+        assert "comp.lang.python" in events
+        assert "appeared" in events
     finally:
         server.shutdown()
         server.server_close()
