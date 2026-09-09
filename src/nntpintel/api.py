@@ -5,6 +5,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
+from nntpintel.candidates import list_candidate_qualifications, list_candidates
 from nntpintel.discovery import list_sources
 from nntpintel.storage import Storage
 
@@ -248,6 +249,11 @@ class APIHandler(BaseHTTPRequestHandler):
 
             self._send_html(servers_page(self.storage))
             return
+        if path == "/web/candidates":
+            from nntpintel.web import candidates_page
+
+            self._send_html(candidates_page(self.storage))
+            return
         if path.startswith("/web/servers/"):
             from nntpintel.web import server_detail_page
 
@@ -292,6 +298,12 @@ class APIHandler(BaseHTTPRequestHandler):
             return
         if path == "/sources":
             self._send_json(list_sources(self.storage))
+            return
+        if path == "/candidates":
+            self._send_json(list_candidates(self.storage))
+            return
+        if path == "/candidate-qualifications":
+            self._send_json(list_candidate_qualifications(self.storage))
             return
         if path.startswith("/servers/"):
             try:
