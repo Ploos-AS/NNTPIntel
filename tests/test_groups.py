@@ -3,7 +3,7 @@ import sqlite3
 import threading
 from datetime import UTC, datetime
 
-from nntpintel.groups import inventory_groups
+from nntpintel.groups import GroupInventory, GroupRecord, inventory_groups
 from nntpintel.storage import Storage
 
 
@@ -98,8 +98,6 @@ def test_schema_v1_database_migrates_to_v2(tmp_path):
 def test_group_inventory_tracks_seen_times(tmp_path):
     storage = Storage(tmp_path / "nntpintel.db")
     endpoint_id = storage.ensure_endpoint("news.example.test")
-
-    from nntpintel.groups import GroupInventory, GroupRecord
 
     first = GroupInventory(
         observed_at=datetime(2026, 9, 9, 1, 0, tzinfo=UTC).isoformat(),
