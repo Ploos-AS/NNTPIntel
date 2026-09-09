@@ -9,7 +9,7 @@ from pathlib import Path
 from nntpintel.groups import GroupInventory
 from nntpintel.probe import ProbeObservation
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 SCHEMA_SQL = """
@@ -101,6 +101,66 @@ CREATE TABLE IF NOT EXISTS group_inventory_schedule (
     last_inventory_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS discovery_sources (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    source_ref TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_import_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS server_sources (
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    source_id INTEGER NOT NULL REFERENCES discovery_sources(id) ON DELETE CASCADE,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY(server_id, source_id)
+);
+
+CREATE TABLE IF NOT EXISTS candidate_qualifications (
+    id INTEGER PRIMARY KEY,
+    endpoint_id INTEGER NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
+    observed_at TEXT NOT NULL,
+    classification TEXT NOT NULL,
+    detail TEXT,
+    UNIQUE(endpoint_id, observed_at)
+);
+
+CREATE TABLE IF NOT EXISTS candidate_decisions (
+    server_id INTEGER PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending',
+    decided_at TEXT,
+    note TEXT
+);
+
+CREATE TABLE IF NOT EXISTS candidate_cycle_runs (
+    id INTEGER PRIMARY KEY,
+    source TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL,
+    added INTEGER NOT NULL DEFAULT 0,
+    still_present INTEGER NOT NULL DEFAULT 0,
+    missing INTEGER NOT NULL DEFAULT 0,
+    qualification_count INTEGER NOT NULL DEFAULT 0,
+    classifications_json TEXT NOT NULL DEFAULT '{}',
+    promotion_count INTEGER NOT NULL DEFAULT 0,
+    error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS candidate_cycle_schedule (
+    source TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    interval_seconds INTEGER NOT NULL DEFAULT 21600,
+    candidate_limit INTEGER NOT NULL DEFAULT 3,
+    timeout_seconds REAL NOT NULL DEFAULT 5.0,
+    next_cycle_at TEXT,
+    last_cycle_at TEXT,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE INDEX IF NOT EXISTS idx_observations_endpoint_time
 ON observations(endpoint_id, observed_at DESC);
 
@@ -115,6 +175,15 @@ ON group_events(endpoint_id, observed_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_group_inventory_due
 ON group_inventory_schedule(next_inventory_at);
+
+CREATE INDEX IF NOT EXISTS idx_candidate_qualifications_endpoint_time
+ON candidate_qualifications(endpoint_id, observed_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_candidate_cycle_runs_source_time
+ON candidate_cycle_runs(source, started_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_candidate_cycle_schedule_due
+ON candidate_cycle_schedule(enabled, next_cycle_at);
 """
 
 
@@ -133,10 +202,14 @@ class Storage:
     def _init_schema(self) -> None:
         with closing(self.connect()) as conn:
             conn.executescript(SCHEMA_SQL)
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(server_sources)")}
+            if "active" not in columns:
+                conn.execute("ALTER TABLE server_sources ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
+
             row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
             if row is None:
                 conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
-            elif row["version"] in {1, 2}:
+            elif row["version"] in {1, 2, 3}:
                 conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
             elif row["version"] != SCHEMA_VERSION:
                 raise RuntimeError(
