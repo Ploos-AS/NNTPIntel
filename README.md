@@ -4,9 +4,49 @@ NNTPIntel is an open-source observability and intelligence platform for public N
 
 It collects passive, standards-based observations from NNTP servers and turns them into searchable history, health information, hierarchy/group changes, and later article-propagation measurements and topology hints.
 
-## M0 scope
+## Current status
 
-Initial goals:
+M1 probe engine is now implemented. It can probe a single NNTP endpoint over plaintext TCP, implicit TLS/NNTPS, or STARTTLS and emit normalized JSON containing connection latency, greeting/posting status, capabilities, MODE READER response, TLS metadata, and errors.
+
+### Development install
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+pip install -e . pytest ruff
+pytest
+ruff check .
+```
+
+### Probe examples
+
+Plain NNTP on port 119:
+
+```bash
+nntpintel-probe news.example.net
+```
+
+Implicit TLS/NNTPS on port 563:
+
+```bash
+nntpintel-probe news.example.net --tls
+```
+
+STARTTLS on port 119:
+
+```bash
+nntpintel-probe news.example.net --starttls
+```
+
+A custom port and timeout may also be supplied:
+
+```bash
+nntpintel-probe news.example.net --port 8119 --timeout 5
+```
+
+The command exits non-zero when the observation contains an error, while still emitting the JSON observation so callers can retain failed measurements.
+
+## Project goals
 
 - discover and inventory public NNTP servers
 - collect connection, banner, capability, TLS and latency observations
@@ -49,10 +89,6 @@ history / change detection
 ```
 
 Collection, normalization, storage, analysis and presentation should remain separated so new measurement methods can be added without coupling them to the UI.
-
-## Status
-
-Early development. M0 establishes project scope, principles, architecture and milestone plan.
 
 See [docs/M0_FOUNDATION.md](docs/M0_FOUNDATION.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
 
