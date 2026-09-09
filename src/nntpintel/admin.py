@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
+from nntpintel.api import serve
 from nntpintel.scheduler import SchedulerConfig, run_forever, run_once
 from nntpintel.storage import Storage
 
@@ -26,6 +27,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     daemon = sub.add_parser("run", help="run the scheduler continuously")
     daemon.add_argument("--poll-seconds", type=float, default=5.0)
+
+    api = sub.add_parser("api", help="serve the read-only JSON API")
+    api.add_argument("--host", default="127.0.0.1")
+    api.add_argument("--port", type=int, default=8080)
 
     return parser
 
@@ -59,6 +64,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "run":
         run_forever(storage, config=SchedulerConfig(poll_seconds=args.poll_seconds))
+        return 0
+
+    if args.command == "api":
+        serve(storage, host=args.host, port=args.port)
         return 0
 
     raise AssertionError("unreachable")
