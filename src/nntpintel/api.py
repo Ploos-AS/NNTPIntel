@@ -28,6 +28,7 @@ from nntpintel.propagation_topology_resilience import topology_resilience
 from nntpintel.propagation_topology_risk import topology_risk
 from nntpintel.propagation_topology_snapshots import (
     compare_evidence_snapshots,
+    evidence_snapshot_timeline,
     get_evidence_snapshot,
     list_evidence_snapshots,
 )
@@ -304,6 +305,17 @@ class APIHandler(BaseHTTPRequestHandler):
             except ValueError:
                 self._send_json({"error": "invalid limit"}, HTTPStatus.BAD_REQUEST); return
             self._send_json(list_evidence_snapshots(self.storage, conclusion_ref, limit=limit)); return
+        if path == "/propagation/topology/snapshot-timeline":
+            conclusion_ref = params.get("ref", [None])[0]
+            if not conclusion_ref:
+                self._send_json({"error": "ref is required"}, HTTPStatus.BAD_REQUEST); return
+            since = params.get("since", [None])[0] or None
+            limit_text = params.get("limit", ["100"])[0]
+            try:
+                limit = int(limit_text)
+            except ValueError:
+                self._send_json({"error": "invalid limit"}, HTTPStatus.BAD_REQUEST); return
+            self._send_json(evidence_snapshot_timeline(self.storage, conclusion_ref, since=since, limit=limit)); return
         if path == "/propagation/topology/snapshot-diff":
             before_text = params.get("before", [None])[0]
             after_text = params.get("after", [None])[0]
