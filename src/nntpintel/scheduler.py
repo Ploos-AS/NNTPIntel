@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from nntpintel.groups import inventory_groups
 from nntpintel.probe import probe
 from nntpintel.storage import Storage
 
@@ -12,6 +13,7 @@ from nntpintel.storage import Storage
 class SchedulerConfig:
     poll_seconds: float = 5.0
     batch_size: int = 20
+    group_batch_size: int = 5
     max_backoff_seconds: int = 21600
 
 
@@ -27,6 +29,38 @@ def _next_probe_time(
     else:
         delay = min(interval_seconds * (2 ** min(consecutive_failures, 8)), max_backoff_seconds)
     return now + timedelta(seconds=delay)
+
+
+def run_group_inventories(storage: Storage, *, config: SchedulerConfig | None = None) -> int:
+    config = config or SchedulerConfig()
+    now = datetime.now(UTC)
+    rows = storage.due_group_endpoints(now.isoformat(), limit=config.group_batch_size)
+    completed = 0
+
+    for row in rows:
+        last_inventory_at = row["last_inventory_at"]
+        since = datetime.fromisoformat(last_inventory_at) if last_inventory_at else None
+        inventory = inventory_groups(
+            row["host"],
+            port=int(row["port"]),
+            implicit_tls=row["transport"] == "tls",
+            starttls=bool(row["starttls"]),
+            timeout=float(row["timeout_seconds"]),
+            newgroups_since=since,
+        )
+        if inventory.error is None:
+            storage.record_group_inventory(int(row["id"]), inventory)
+
+        finished = datetime.now(UTC)
+        next_at = finished + timedelta(seconds=int(row["group_interval_seconds"]))
+        storage.update_group_schedule(
+            int(row["id"]),
+            last_inventory_at=finished.isoformat(),
+            next_inventory_at=next_at.isoformat(),
+        )
+        completed += 1
+
+    return completed
 
 
 def run_once(storage: Storage, *, config: SchedulerConfig | None = None) -> int:
@@ -63,6 +97,7 @@ def run_once(storage: Storage, *, config: SchedulerConfig | None = None) -> int:
         )
         completed += 1
 
+    run_group_inventories(storage, config=config)
     return completed
 
 
