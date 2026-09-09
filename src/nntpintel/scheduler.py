@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from nntpintel.cycle import run_due_candidate_cycles
 from nntpintel.groups import inventory_groups
 from nntpintel.probe import probe
 from nntpintel.storage import Storage
@@ -14,7 +15,9 @@ class SchedulerConfig:
     poll_seconds: float = 5.0
     batch_size: int = 20
     group_batch_size: int = 5
+    cycle_batch_size: int = 1
     max_backoff_seconds: int = 21600
+    max_cycle_backoff_seconds: int = 86400
 
 
 def _next_probe_time(
@@ -98,6 +101,11 @@ def run_once(storage: Storage, *, config: SchedulerConfig | None = None) -> int:
         completed += 1
 
     run_group_inventories(storage, config=config)
+    run_due_candidate_cycles(
+        storage,
+        limit=config.cycle_batch_size,
+        max_backoff_seconds=config.max_cycle_backoff_seconds,
+    )
     return completed
 
 
