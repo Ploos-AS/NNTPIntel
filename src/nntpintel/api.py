@@ -13,6 +13,7 @@ from nntpintel.propagation_incidents import list_propagation_incidents
 from nntpintel.propagation_topology import inferred_propagation_topology
 from nntpintel.propagation_topology_anomalies import topology_anomalies
 from nntpintel.propagation_topology_communities import topology_communities
+from nntpintel.propagation_topology_compare import compare_topology_refs
 from nntpintel.propagation_topology_conclusions import topology_conclusions
 from nntpintel.propagation_topology_cross_cluster import cross_cluster_intelligence
 from nntpintel.propagation_topology_evidence import topology_evidence
@@ -281,6 +282,13 @@ class APIHandler(BaseHTTPRequestHandler):
             except ValueError:
                 self._send_json({"error": "invalid conclusion kind"}, HTTPStatus.BAD_REQUEST); return
             self._send_json(payload); return
+        if path == "/propagation/topology/compare":
+            before_ref = params.get("before", [None])[0]
+            after_ref = params.get("after", [None])[0]
+            if not before_ref or not after_ref:
+                self._send_json({"error": "before and after are required"}, HTTPStatus.BAD_REQUEST); return
+            comparison = compare_topology_refs(self.storage, before_ref, after_ref)
+            self._send_json(comparison if comparison is not None else {"error": "not found"}, HTTPStatus.OK if comparison is not None else HTTPStatus.NOT_FOUND); return
         if path.startswith("/propagation/topology/export/"):
             evidence_ref = unquote(path.split("/propagation/topology/export/", 1)[1])
             bundle = topology_evidence_bundle(self.storage, evidence_ref)
