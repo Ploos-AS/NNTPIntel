@@ -1,8 +1,16 @@
 from io import BytesIO
+import socket
+import threading
 
 import pytest
 
-from nntpintel.probe import NNTPProtocolError, _parse_status, _read_multiline, _readline
+from nntpintel.probe import (
+    NNTPProtocolError,
+    _parse_status,
+    _read_multiline,
+    _readline,
+    probe,
+)
 
 
 def test_parse_status():
@@ -22,3 +30,50 @@ def test_readline_decodes_and_strips_crlf():
 def test_multiline_unstuffs_dot_lines():
     stream = BytesIO(b"VERSION 2\r\n..leading-dot\r\n.\r\n")
     assert _read_multiline(stream) == ["VERSION 2", ".leading-dot"]
+
+
+def test_probe_end_to_end_against_local_nntp_server():
+    ready = threading.Event()
+    state: dict[str, int] = {}
+
+    def server() -> None:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            state["port"] = listener.getsockname()[1]
+            ready.set()
+
+            conn, _ = listener.accept()
+            with conn, conn.makefile("rwb", buffering=0) as stream:
+                stream.write(b"200 local test server ready\r\n")
+
+                assert stream.readline() == b"CAPABILITIES\r\n"
+                stream.write(
+                    b"101 Capability list follows\r\n"
+                    b"VERSION 2\r\n"
+                    b"READER\r\n"
+                    b"POST\r\n"
+                    b".\r\n"
+                )
+
+                assert stream.readline() == b"MODE READER\r\n"
+                stream.write(b"200 Reader mode acknowledged\r\n")
+
+                assert stream.readline() == b"QUIT\r\n"
+                stream.write(b"205 closing connection\r\n")
+
+    thread = threading.Thread(target=server, daemon=True)
+    thread.start()
+    assert ready.wait(timeout=2)
+
+    observation = probe("127.0.0.1", port=state["port"], timeout=2)
+    thread.join(timeout=2)
+
+    assert not thread.is_alive()
+    assert observation.error is None
+    assert observation.greeting_code == 200
+    assert observation.posting_allowed is True
+    assert observation.capabilities == ["VERSION 2", "READER", "POST"]
+    assert observation.mode_reader_code == 200
+    assert observation.transport == "tcp"
+    assert observation.connect_ms is not None
