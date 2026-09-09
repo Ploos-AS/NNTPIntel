@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import UTC, datetime
 
 from nntpintel.propagation_topology_explain import explain_topology_ref
@@ -63,6 +65,34 @@ def _quality_summary(explanation: dict) -> dict | None:
     return None
 
 
+def canonical_evidence_payload(bundle: dict) -> dict:
+    return {
+        "model": bundle["model"],
+        "schema_version": bundle["schema_version"],
+        "authoritative_topology": bundle["authoritative_topology"],
+        "conclusion": bundle["conclusion"],
+        "related_refs": bundle["related_refs"],
+        "quality": bundle["quality"],
+        "provenance": bundle["provenance"],
+        "analysis": bundle["analysis"],
+        "limitations": bundle["limitations"],
+    }
+
+
+def canonical_evidence_json(bundle: dict) -> str:
+    return json.dumps(
+        canonical_evidence_payload(bundle),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+
+
+def evidence_fingerprint(bundle: dict) -> str:
+    payload = canonical_evidence_json(bundle).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def topology_evidence_bundle(
     storage: Storage,
     evidence_ref: str,
@@ -78,7 +108,7 @@ def topology_evidence_bundle(
     if evidence_ref not in related_refs:
         related_refs.insert(0, evidence_ref)
 
-    return {
+    bundle = {
         "model": "nntpintel_topology_evidence_bundle",
         "schema_version": 1,
         "generated_at": timestamp,
@@ -108,3 +138,9 @@ def topology_evidence_bundle(
         },
         "limitations": explanation["limitations"],
     }
+    bundle["integrity"] = {
+        "algorithm": "sha256",
+        "scope": "canonical_evidence_payload_v1",
+        "fingerprint": evidence_fingerprint(bundle),
+    }
+    return bundle
