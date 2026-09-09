@@ -67,9 +67,7 @@ def topology_resilience(storage: Storage) -> dict:
         nodes = community_nodes[community_id]
         baseline_components = _component_count(nodes, strong_edges)
         remaining_nodes = set(nodes) - {server_id}
-        remaining_edges = [
-            edge for edge in strong_edges if server_id not in edge
-        ]
+        remaining_edges = [edge for edge in strong_edges if server_id not in edge]
         after_components = _component_count(remaining_nodes, remaining_edges)
         fragmentation_delta = max(0, after_components - baseline_components)
         lost_cross = sum(
@@ -79,7 +77,7 @@ def topology_resilience(storage: Storage) -> dict:
         )
         cross_total = len(cross_edges)
         cross_loss_ratio = 0.0 if cross_total == 0 else lost_cross / cross_total
-        fragmentation_norm = min(1.0, fragmentation_delta / max(1, len(nodes) - 1))
+        fragmentation_norm = min(1.0, float(fragmentation_delta))
         impact_norm = node_impact.get(server_id, 0.0) / 100.0
         resilience_score = round(
             (0.55 * fragmentation_norm + 0.3 * cross_loss_ratio + 0.15 * impact_norm) * 100,
