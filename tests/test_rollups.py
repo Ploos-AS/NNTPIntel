@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -27,8 +27,8 @@ class FakeConnection:
 
 def test_rollup_rejects_invalid_resolution_and_bounds():
     conn = FakeConnection()
-    start = datetime(2026, 9, 9, tzinfo=timezone.utc)
-    end = datetime(2026, 9, 10, tzinfo=timezone.utc)
+    start = datetime(2026, 9, 9, tzinfo=UTC)
+    end = datetime(2026, 9, 10, tzinfo=UTC)
 
     with pytest.raises(ValueError, match="resolution"):
         rebuild_server_observation_rollups(
@@ -38,19 +38,21 @@ def test_rollup_rejects_invalid_resolution_and_bounds():
         rebuild_server_observation_rollups(
             conn, resolution="hour", start=end, end=start
         )
+    naive_start = start.replace(tzinfo=None)
+    naive_end = end.replace(tzinfo=None)
     with pytest.raises(ValueError, match="timezone-aware"):
         rebuild_server_observation_rollups(
             conn,
             resolution="hour",
-            start=datetime(2026, 9, 9),
-            end=datetime(2026, 9, 10),
+            start=naive_start,
+            end=naive_end,
         )
 
 
 def test_rollup_rebuild_is_bounded_and_idempotent_by_replace():
     conn = FakeConnection()
-    start = datetime(2026, 9, 9, tzinfo=timezone.utc)
-    end = datetime(2026, 9, 10, tzinfo=timezone.utc)
+    start = datetime(2026, 9, 9, tzinfo=UTC)
+    end = datetime(2026, 9, 10, tzinfo=UTC)
 
     result = rebuild_server_observation_rollups(
         conn, resolution="hour", start=start, end=end
