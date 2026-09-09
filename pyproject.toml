@@ -14,6 +14,7 @@ dependencies = []
 
 [project.scripts]
 nntpintel-probe = "nntpintel.cli:main"
+nntpintel = "nntpintel.admin:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
