@@ -6,9 +6,10 @@ from collections.abc import Iterable
 from contextlib import closing
 from pathlib import Path
 
+from nntpintel.groups import GroupInventory
 from nntpintel.probe import ProbeObservation
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 SCHEMA_SQL = """
@@ -57,11 +58,41 @@ CREATE TABLE IF NOT EXISTS observations (
     raw_json TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS hierarchies (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS newsgroups (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    hierarchy_id INTEGER NOT NULL REFERENCES hierarchies(id),
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS group_snapshots (
+    id INTEGER PRIMARY KEY,
+    endpoint_id INTEGER NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
+    newsgroup_id INTEGER NOT NULL REFERENCES newsgroups(id) ON DELETE CASCADE,
+    observed_at TEXT NOT NULL,
+    high_water INTEGER,
+    low_water INTEGER,
+    posting_status TEXT,
+    description TEXT,
+    UNIQUE(endpoint_id, newsgroup_id, observed_at)
+);
+
 CREATE INDEX IF NOT EXISTS idx_observations_endpoint_time
 ON observations(endpoint_id, observed_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_endpoints_due
 ON endpoints(enabled, next_probe_at);
+
+CREATE INDEX IF NOT EXISTS idx_group_snapshots_group_time
+ON group_snapshots(newsgroup_id, observed_at DESC);
 """
 
 
@@ -83,6 +114,8 @@ class Storage:
             row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
             if row is None:
                 conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
+            elif row["version"] == 1:
+                conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
             elif row["version"] != SCHEMA_VERSION:
                 raise RuntimeError(
                     f"unsupported schema version {row['version']}; expected {SCHEMA_VERSION}"
@@ -177,6 +210,61 @@ class Storage:
                 ),
             )
             conn.commit()
+
+    def record_group_inventory(self, endpoint_id: int, inventory: GroupInventory) -> int:
+        if inventory.error is not None:
+            return 0
+        with closing(self.connect()) as conn:
+            for group in inventory.groups:
+                conn.execute(
+                    """
+                    INSERT INTO hierarchies(name, first_seen_at, last_seen_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(name) DO UPDATE SET last_seen_at = excluded.last_seen_at
+                    """,
+                    (group.hierarchy, inventory.observed_at, inventory.observed_at),
+                )
+                hierarchy_id = conn.execute(
+                    "SELECT id FROM hierarchies WHERE name = ?", (group.hierarchy,)
+                ).fetchone()["id"]
+                conn.execute(
+                    """
+                    INSERT INTO newsgroups(name, hierarchy_id, first_seen_at, last_seen_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(name) DO UPDATE SET last_seen_at = excluded.last_seen_at
+                    """,
+                    (group.name, hierarchy_id, inventory.observed_at, inventory.observed_at),
+                )
+                newsgroup_id = conn.execute(
+                    "SELECT id FROM newsgroups WHERE name = ?", (group.name,)
+                ).fetchone()["id"]
+                conn.execute(
+                    """
+                    INSERT INTO group_snapshots(
+                        endpoint_id, newsgroup_id, observed_at,
+                        high_water, low_water, posting_status, description
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        endpoint_id,
+                        newsgroup_id,
+                        inventory.observed_at,
+                        group.high,
+                        group.low,
+                        group.status,
+                        group.description,
+                    ),
+                )
+            conn.commit()
+        return len(inventory.groups)
+
+    def group_count(self) -> int:
+        with closing(self.connect()) as conn:
+            return int(conn.execute("SELECT COUNT(*) FROM newsgroups").fetchone()[0])
+
+    def hierarchy_count(self) -> int:
+        with closing(self.connect()) as conn:
+            return int(conn.execute("SELECT COUNT(*) FROM hierarchies").fetchone()[0])
 
     def update_schedule(
         self,
