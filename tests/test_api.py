@@ -25,21 +25,56 @@ def _get_html(url: str) -> str:
 def _populated_storage(tmp_path) -> tuple[Storage, GroupInventory]:
     storage = Storage(tmp_path / "nntpintel.db")
     endpoint_id = storage.ensure_endpoint("news.example.test", port=119)
-    observation = ProbeObservation(
-        observed_at=datetime(2026, 9, 9, 2, 55, tzinfo=UTC).isoformat(),
-        host="news.example.test",
-        port=119,
-        transport="tcp",
-        connect_ms=12.5,
-        greeting_code=200,
-        greeting="200 test server ready",
-        posting_allowed=True,
-        capabilities=["VERSION 2", "READER", "STARTTLS"],
-        mode_reader_code=200,
-        mode_reader_response="200 Reader mode",
-        tls=TLSObservation(enabled=True, mode="starttls", protocol="TLSv1.3", cipher="TEST"),
-    )
-    storage.record_observation(endpoint_id, observation)
+    observations = [
+        ProbeObservation(
+            observed_at=datetime(2026, 9, 9, 2, 45, tzinfo=UTC).isoformat(),
+            host="news.example.test",
+            port=119,
+            transport="tcp",
+            connect_ms=10.0,
+            greeting_code=200,
+            greeting="200 test server ready",
+            posting_allowed=True,
+            capabilities=["VERSION 2", "READER", "STARTTLS"],
+            mode_reader_code=200,
+            mode_reader_response="200 Reader mode",
+            tls=TLSObservation(
+                enabled=True,
+                mode="starttls",
+                protocol="TLSv1.3",
+                cipher="TEST",
+            ),
+        ),
+        ProbeObservation(
+            observed_at=datetime(2026, 9, 9, 2, 50, tzinfo=UTC).isoformat(),
+            host="news.example.test",
+            port=119,
+            transport="tcp",
+            error="ConnectionRefusedError: test failure",
+        ),
+        ProbeObservation(
+            observed_at=datetime(2026, 9, 9, 2, 55, tzinfo=UTC).isoformat(),
+            host="news.example.test",
+            port=119,
+            transport="tcp",
+            connect_ms=15.0,
+            greeting_code=200,
+            greeting="200 test server ready",
+            posting_allowed=True,
+            capabilities=["VERSION 2", "READER", "STARTTLS"],
+            mode_reader_code=200,
+            mode_reader_response="200 Reader mode",
+            tls=TLSObservation(
+                enabled=True,
+                mode="starttls",
+                protocol="TLSv1.3",
+                cipher="TEST",
+            ),
+        ),
+    ]
+    for observation in observations:
+        storage.record_observation(endpoint_id, observation)
+
     inventory = GroupInventory(
         observed_at=datetime(2026, 9, 9, 3, 0, tzinfo=UTC).isoformat(),
         host="news.example.test",
@@ -103,10 +138,22 @@ def test_api_lists_core_resources_and_server_detail(tmp_path):
         detail = _get_json(f"{base}/servers/{server_id}")
         assert detail["host"] == "news.example.test"
         assert detail["endpoints"][0]["port"] == 119
-        assert detail["observations"][0]["connect_ms"] == 12.5
+        assert detail["observations"][0]["connect_ms"] == 15.0
         assert detail["observations"][0]["capabilities"] == ["VERSION 2", "READER", "STARTTLS"]
         assert detail["observations"][0]["tls"]["protocol"] == "TLSv1.3"
         assert detail["events"][0]["newsgroup"] == "comp.lang.python"
+        assert detail["availability"]["sample_count"] == 3
+        assert detail["availability"]["success_count"] == 2
+        assert detail["availability"]["failure_count"] == 1
+        assert detail["availability"]["availability_percent"] == 66.67
+        assert detail["availability"]["average_latency_ms"] == 12.5
+        assert detail["availability"]["min_latency_ms"] == 10.0
+        assert detail["availability"]["max_latency_ms"] == 15.0
+        assert [item["event"] for item in detail["availability"]["transitions"]] == [
+            "failed",
+            "recovered",
+        ]
+        assert len(detail["availability"]["latency_series"]) == 2
     finally:
         server.shutdown()
         server.server_close()
@@ -138,9 +185,15 @@ def test_web_dashboard_renders_observed_data(tmp_path):
 
         server_id = _get_json(f"{base}/servers")[0]["id"]
         detail = _get_html(f"{base}/web/servers/{server_id}")
+        assert "Availability history" in detail
+        assert "Latency trend" in detail
+        assert "Failure / recovery timeline" in detail
+        assert "66.67" in detail
+        assert "12.5" in detail
+        assert "failed" in detail
+        assert "recovered" in detail
         assert "Observation history" in detail
         assert "Group changes" in detail
-        assert "12.5" in detail
         assert "VERSION 2, READER, STARTTLS" in detail
         assert "TLSv1.3" in detail
         assert "comp.lang.python" in detail
