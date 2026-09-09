@@ -8,6 +8,11 @@ from urllib.parse import urlparse
 from nntpintel.candidate_observability import list_candidate_observability
 from nntpintel.candidates import list_candidate_qualifications
 from nntpintel.cycle import list_cycle_runs
+from nntpintel.propagation_view import (
+    get_propagation_article,
+    list_propagation_articles,
+    list_propagation_campaigns,
+)
 from nntpintel.source_management import list_source_management
 from nntpintel.storage import Storage
 
@@ -266,6 +271,25 @@ class APIHandler(BaseHTTPRequestHandler):
 
             self._send_html(cycle_runs_page(self.storage))
             return
+        if path == "/web/propagation":
+            from nntpintel.propagation_web import propagation_page
+
+            self._send_html(propagation_page(self.storage))
+            return
+        if path.startswith("/web/propagation/"):
+            from nntpintel.propagation_web import propagation_detail_page
+
+            try:
+                article_id = int(path.rsplit("/", 1)[1])
+            except ValueError:
+                self._send_html("<h1>Not found</h1>", HTTPStatus.NOT_FOUND)
+                return
+            html = propagation_detail_page(self.storage, article_id)
+            if html is None:
+                self._send_html("<h1>Not found</h1>", HTTPStatus.NOT_FOUND)
+            else:
+                self._send_html(html)
+            return
         if path.startswith("/web/servers/"):
             from nntpintel.web import server_detail_page
 
@@ -319,6 +343,24 @@ class APIHandler(BaseHTTPRequestHandler):
             return
         if path == "/cycle-runs":
             self._send_json(list_cycle_runs(self.storage))
+            return
+        if path == "/propagation/articles":
+            self._send_json(list_propagation_articles(self.storage))
+            return
+        if path == "/propagation/campaigns":
+            self._send_json(list_propagation_campaigns(self.storage))
+            return
+        if path.startswith("/propagation/articles/"):
+            try:
+                article_id = int(path.rsplit("/", 1)[1])
+            except ValueError:
+                self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+                return
+            article = get_propagation_article(self.storage, article_id)
+            if article is None:
+                self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            else:
+                self._send_json(article)
             return
         if path.startswith("/servers/"):
             try:
