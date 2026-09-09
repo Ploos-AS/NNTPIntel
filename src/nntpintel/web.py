@@ -11,6 +11,7 @@ from nntpintel.api import (
     list_hierarchies,
     list_servers,
 )
+from nntpintel.propagation_view import propagation_overview
 from nntpintel.storage import Storage
 
 _STYLE = """
@@ -58,6 +59,7 @@ def _page(title: str, body: str) -> str:
     <a href="/web/servers">Servers</a>
     <a href="/web/groups">Groups</a>
     <a href="/web/events">Events</a>
+    <a href="/web/propagation">Propagation</a>
     <a href="/healthz">API health</a>
   </nav>
 </header>
@@ -72,6 +74,7 @@ def dashboard(storage: Storage) -> str:
     groups = list_groups(storage)
     hierarchies = list_hierarchies(storage)
     events = list_events(storage, limit=10)
+    propagation = propagation_overview(storage)
     failing = sum(1 for endpoint in endpoints if int(endpoint["consecutive_failures"]) > 0)
 
     cards = "".join(
@@ -82,6 +85,10 @@ def dashboard(storage: Storage) -> str:
             ("Failing endpoints", failing),
             ("Hierarchies", len(hierarchies)),
             ("Newsgroups", len(groups)),
+            ("Propagation articles", propagation["article_count"]),
+            ("Active campaigns", propagation["active_campaign_count"]),
+            ("Measured propagation endpoints", propagation["measured_endpoint_count"]),
+            ("Propagation observations", propagation["observation_count"]),
         ]
     )
     event_rows = "".join(
@@ -98,6 +105,10 @@ def dashboard(storage: Storage) -> str:
 <section>
   <h2>Overview</h2>
   <div class="cards">{cards}</div>
+</section>
+<section>
+  <h2>Propagation intelligence</h2>
+  <p><a href="/web/propagation">Open propagation measurements and campaigns →</a></p>
 </section>
 <section>
   <h2>Recent group events</h2>
