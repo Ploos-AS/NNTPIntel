@@ -8,6 +8,7 @@ from nntpintel.cycle import run_due_candidate_cycles
 from nntpintel.groups import inventory_groups
 from nntpintel.probe import probe
 from nntpintel.propagation_campaigns import run_due_campaigns
+from nntpintel.propagation_incidents import evaluate_propagation_incidents
 from nntpintel.storage import Storage
 
 
@@ -108,7 +109,13 @@ def run_once(storage: Storage, *, config: SchedulerConfig | None = None) -> int:
         limit=config.cycle_batch_size,
         max_backoff_seconds=config.max_cycle_backoff_seconds,
     )
-    run_due_campaigns(storage, limit=config.campaign_batch_size)
+    campaign_runs = run_due_campaigns(storage, limit=config.campaign_batch_size)
+    if any(
+        (row["cycle"] is not None and int(row["cycle"]["measured_endpoint_count"]) > 0)
+        or row["terminal"] is not None
+        for row in campaign_runs
+    ):
+        evaluate_propagation_incidents(storage)
     return completed
 
 
