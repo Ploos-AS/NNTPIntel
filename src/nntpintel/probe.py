@@ -4,7 +4,7 @@ import socket
 import ssl
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import BinaryIO
 
 MAX_LINE = 16 * 1024
@@ -111,7 +111,7 @@ def probe(
         raise ValueError("implicit_tls and starttls are mutually exclusive")
 
     observation = ProbeObservation(
-        observed_at=datetime.now(timezone.utc).isoformat(),
+        observed_at=datetime.now(UTC).isoformat(),
         host=host,
         port=port,
         transport="tls" if implicit_tls else "tcp",
