@@ -5,6 +5,25 @@ from nntpintel.propagation_campaigns import list_campaigns
 from nntpintel.storage import Storage
 
 
+def propagation_overview(storage: Storage) -> dict:
+    with storage.connect() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM propagation_articles) AS article_count,
+                (SELECT COUNT(*) FROM propagation_campaigns WHERE status = 'active') AS active_campaign_count,
+                (SELECT COUNT(DISTINCT endpoint_id) FROM propagation_observations) AS measured_endpoint_count,
+                (SELECT COUNT(*) FROM propagation_observations) AS observation_count
+            """
+        ).fetchone()
+    return {
+        "article_count": int(row["article_count"]),
+        "active_campaign_count": int(row["active_campaign_count"]),
+        "measured_endpoint_count": int(row["measured_endpoint_count"]),
+        "observation_count": int(row["observation_count"]),
+    }
+
+
 def list_propagation_articles(storage: Storage, *, limit: int = 100) -> list[dict]:
     if limit < 1 or limit > 1000:
         raise ValueError("propagation article limit must be between 1 and 1000")
