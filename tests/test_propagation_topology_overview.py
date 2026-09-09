@@ -47,11 +47,15 @@ def test_topology_overview_prioritizes_current_attention(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "nntpintel.propagation_topology_overview.topology_risk",
         lambda storage: {
+            "data_quality_score": 45,
+            "data_quality_level": "limited",
+            "high_risk_low_evidence_server_count": 1,
             "servers": [
                 {
                     "host": "a.example.test",
                     "risk_score": 82.0,
                     "risk_level": "critical",
+                    "evidence_level": "limited",
                     "open_incident_count": 1,
                     "is_gateway": True,
                 },
@@ -59,13 +63,24 @@ def test_topology_overview_prioritizes_current_attention(monkeypatch, tmp_path):
                     "host": "b.example.test",
                     "risk_score": 35.0,
                     "risk_level": "moderate",
+                    "evidence_level": "high",
                     "open_incident_count": 0,
                     "is_gateway": False,
                 },
             ],
             "communities": [
-                {"community_id": 1, "risk_score": 60.0, "risk_level": "high"},
-                {"community_id": 2, "risk_score": 20.0, "risk_level": "low"},
+                {
+                    "community_id": 1,
+                    "risk_score": 60.0,
+                    "risk_level": "high",
+                    "evidence_level": "limited",
+                },
+                {
+                    "community_id": 2,
+                    "risk_score": 20.0,
+                    "risk_level": "low",
+                    "evidence_level": "high",
+                },
             ],
         },
     )
@@ -73,10 +88,14 @@ def test_topology_overview_prioritizes_current_attention(monkeypatch, tmp_path):
     result = topology_overview(storage)
     assert result["authoritative_topology"] is False
     assert result["posture"] == "critical"
+    assert result["data_quality"]["score"] == 45
+    assert result["data_quality"]["level"] == "limited"
+    assert result["data_quality"]["risk_score_quality_adjusted"] is False
     assert result["signals"]["critical_incident_count"] == 1
     assert result["signals"]["recovering_incident_count"] == 1
     assert result["signals"]["incident_scope"] == "multi_community"
     assert result["attention"][0]["priority"] == 1
+    assert any(item["evidence_caution"] for item in result["attention"])
     assert any(item["kind"] == "incident_scope" for item in result["attention"])
 
 
@@ -93,13 +112,15 @@ def test_topology_overview_api_and_web(tmp_path):
         assert payload["model"] == "inferred_topology_executive_overview"
         assert payload["authoritative_topology"] is False
         assert "posture" in payload
+        assert "data_quality" in payload
         assert "attention" in payload
 
         with urlopen(f"{base}/web/propagation/topology/overview", timeout=2) as response:
             html = response.read().decode("utf-8")
         assert "Topology executive overview" in html
         assert "What needs attention now" in html
-        assert "Triage only" in html
+        assert "High-risk / weak evidence" in html
+        assert "Risk scores are not quality-adjusted" in html
     finally:
         server.shutdown()
         server.server_close()
