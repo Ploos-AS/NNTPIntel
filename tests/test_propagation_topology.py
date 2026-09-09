@@ -130,6 +130,24 @@ def test_topology_api_and_web(tmp_path):
         assert "early.example.test" in html
         assert "late.example.test" in html
         assert "Observed precedence edges" in html
+        assert "/web/propagation/topology/history" in html
+
+        with urlopen(f"{base}/propagation/topology/history", timeout=2) as response:
+            history = json.load(response)
+        assert history["authoritative_topology"] is False
+        assert history["model"] == "inferred_observed_propagation_precedence_history"
+        assert history["days"] == 30
+        assert "snapshots" in history
+        assert "events" in history
+        assert "edges" in history
+
+        with urlopen(f"{base}/web/propagation/topology/history", timeout=2) as response:
+            history_html = response.read().decode("utf-8")
+        assert "Topology history / stability" in history_html
+        assert "Inference only" in history_html
+        assert "Edge stability" in history_html
+        assert "Topology-change events" in history_html
+        assert "Daily snapshots" in history_html
     finally:
         server.shutdown()
         server.server_close()
