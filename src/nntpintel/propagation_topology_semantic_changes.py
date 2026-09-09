@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-
 
 SCALAR_FIELDS = (
     ("analysis.risk.risk_score", "risk", "Risk"),
@@ -72,9 +70,9 @@ def _scalar_change(path: str, code: str, label: str, before: object, after: obje
     return item
 
 
-def _count_change(path: str, code: str, label: str, before: Iterable, after: Iterable) -> dict | None:
-    before_count = len(list(before))
-    after_count = len(list(after))
+def _count_change(path: str, code: str, label: str, before: list, after: list) -> dict | None:
+    before_count = len(before)
+    after_count = len(after)
     if before_count == after_count:
         return None
     delta = after_count - before_count
