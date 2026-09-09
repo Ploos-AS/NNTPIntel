@@ -42,7 +42,7 @@ a {{ color:#9fd3ff; }} nav a {{ margin-right:1rem; }}
 table {{ width:100%;border-collapse:collapse; }} th,td {{ text-align:left;padding:.65rem;border-bottom:1px solid #2d3944; }}
 th,.muted {{ color:#a8b5c2; }} .warning {{ padding:1rem;border:1px solid #8a6f2a;background:#2a2416;border-radius:.6rem; }}
 </style></head><body><header><h1>NNTPIntel</h1><nav><a href="/">Dashboard</a><a href="/web/servers">Servers</a><a href="/web/groups">Groups</a><a href="/web/events">Events</a><a href="/web/propagation">Propagation</a></nav></header><main>
-<p><a href="/web/propagation">← Propagation</a> · <a href="/web/propagation/topology/history">Topology history / stability</a> · <a href="/web/propagation/topology/anomalies">Topology anomalies</a> · <a href="/web/propagation/topology/incidents">Topology incidents</a> · <a href="/web/propagation/topology/impact">Impact / centrality</a></p><h2>Inferred propagation topology</h2>
+<p><a href="/web/propagation">← Propagation</a> · <a href="/web/propagation/topology/history">Topology history / stability</a> · <a href="/web/propagation/topology/anomalies">Topology anomalies</a> · <a href="/web/propagation/topology/incidents">Topology incidents</a> · <a href="/web/propagation/topology/impact">Impact / centrality</a> · <a href="/web/propagation/topology/communities">Communities / clusters</a></p><h2>Inferred propagation topology</h2>
 <div class="warning"><strong>Inference only.</strong> {escape(str(topology["disclaimer"]))}</div>
 <div class="cards">
 <div class="card"><div class="muted">Nodes</div><div class="metric">{topology["node_count"]}</div></div>
