@@ -105,9 +105,15 @@ def topology_anomalies(
             )
 
     anomalies.sort(key=lambda item: (item["at"], item["kind"], str(item.get("source_host", ""))))
-    counts = {kind: sum(1 for item in anomalies if item["kind"] == kind) for kind in {
-        "edge_reversal", "confidence_collapse", "edge_disappeared", "topology_churn"
-    }}
+    counts = {
+        kind: sum(1 for item in anomalies if item["kind"] == kind)
+        for kind in (
+            "edge_reversal",
+            "confidence_collapse",
+            "edge_disappeared",
+            "topology_churn",
+        )
+    }
     return {
         "model": "inferred_topology_anomalies",
         "authoritative_topology": False,
