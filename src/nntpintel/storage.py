@@ -9,7 +9,7 @@ from pathlib import Path
 from nntpintel.groups import GroupInventory
 from nntpintel.probe import ProbeObservation
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 SCHEMA_SQL = """
@@ -181,6 +181,26 @@ CREATE TABLE IF NOT EXISTS propagation_observations (
     UNIQUE(article_id, endpoint_id, observed_at)
 );
 
+CREATE TABLE IF NOT EXISTS propagation_campaigns (
+    id INTEGER PRIMARY KEY,
+    article_id INTEGER NOT NULL REFERENCES propagation_articles(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'active',
+    interval_seconds INTEGER NOT NULL DEFAULT 300,
+    timeout_seconds REAL NOT NULL DEFAULT 5.0,
+    max_backoff_seconds INTEGER NOT NULL DEFAULT 21600,
+    stop_after_visible INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    completed_at TEXT,
+    UNIQUE(article_id, status)
+);
+
+CREATE TABLE IF NOT EXISTS propagation_campaign_endpoints (
+    campaign_id INTEGER NOT NULL REFERENCES propagation_campaigns(id) ON DELETE CASCADE,
+    endpoint_id INTEGER NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
+    PRIMARY KEY(campaign_id, endpoint_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_observations_endpoint_time
 ON observations(endpoint_id, observed_at DESC);
 
@@ -210,6 +230,9 @@ ON propagation_observations(article_id, observed_at ASC);
 
 CREATE INDEX IF NOT EXISTS idx_propagation_observations_endpoint_time
 ON propagation_observations(endpoint_id, observed_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_propagation_campaigns_status_expiry
+ON propagation_campaigns(status, expires_at);
 """
 
 
@@ -235,7 +258,7 @@ class Storage:
             row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
             if row is None:
                 conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
-            elif row["version"] in {1, 2, 3, 4}:
+            elif row["version"] in {1, 2, 3, 4, 5}:
                 conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
             elif row["version"] != SCHEMA_VERSION:
                 raise RuntimeError(
