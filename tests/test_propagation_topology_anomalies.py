@@ -105,10 +105,12 @@ def test_topology_anomalies_api_and_web(tmp_path):
         assert "Inference only" in html
         assert "Confidence collapses" in html
         assert "Churn events" in html
+        assert "/web/propagation/topology/incidents" in html
 
         with urlopen(f"{base}/web/propagation/topology", timeout=2) as response:
             topology_html = response.read().decode("utf-8")
         assert "/web/propagation/topology/anomalies" in topology_html
+        assert "/web/propagation/topology/incidents" in topology_html
     finally:
         server.shutdown()
         server.server_close()
