@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 from nntpintel.candidates import list_candidate_qualifications, list_candidates
 from nntpintel.cycle import list_cycle_runs
-from nntpintel.discovery import list_sources
+from nntpintel.source_management import list_source_management
 from nntpintel.storage import Storage
 
 
@@ -250,6 +250,11 @@ class APIHandler(BaseHTTPRequestHandler):
 
             self._send_html(servers_page(self.storage))
             return
+        if path == "/web/sources":
+            from nntpintel.source_web import sources_page
+
+            self._send_html(sources_page(self.storage))
+            return
         if path == "/web/candidates":
             from nntpintel.candidate_web import candidates_page
 
@@ -303,7 +308,7 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json(list_events(self.storage))
             return
         if path == "/sources":
-            self._send_json(list_sources(self.storage))
+            self._send_json(list_source_management(self.storage))
             return
         if path == "/candidates":
             self._send_json(list_candidates(self.storage))
