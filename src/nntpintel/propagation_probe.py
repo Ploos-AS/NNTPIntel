@@ -75,7 +75,15 @@ def stat_message_id(
         _send(stream, f"STAT {message_id}")
         response = _readline(stream)
         response_code, _ = _parse_status(response)
-        present = response_code == 223
+        if response_code == 223:
+            present = True
+            error = None
+        elif response_code == 430:
+            present = False
+            error = None
+        else:
+            present = False
+            error = f"unexpected STAT status {response_code}: {response}"
 
         try:
             _send(stream, "QUIT")
@@ -92,6 +100,7 @@ def stat_message_id(
             present=present,
             response_code=response_code,
             response=response,
+            error=error,
         )
     except (OSError, ssl.SSLError, NNTPProtocolError) as exc:
         return PresenceProbeResult(
@@ -147,14 +156,15 @@ def probe_and_record_presence(
         starttls=bool(endpoint["starttls"]),
         timeout=timeout,
     )
-    record_presence(
-        storage,
-        result.message_id,
-        endpoint_id,
-        observed_at=result.observed_at,
-        present=result.present,
-        method="stat",
-        response_code=result.response_code,
-        error=result.error,
-    )
+    if result.error is None and result.response_code in {223, 430}:
+        record_presence(
+            storage,
+            result.message_id,
+            endpoint_id,
+            observed_at=result.observed_at,
+            present=result.present,
+            method="stat",
+            response_code=result.response_code,
+            error=None,
+        )
     return asdict(result)
