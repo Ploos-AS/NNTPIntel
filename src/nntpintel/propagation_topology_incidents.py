@@ -7,6 +7,9 @@ from nntpintel.propagation_topology_anomalies import topology_anomalies
 from nntpintel.storage import Storage
 
 TOPOLOGY_INCIDENT_PREFIX = "topology_"
+WARNING_OPEN_STREAK = 2
+RECOVERY_STREAK = 2
+MAX_EVIDENCE = 20
 
 
 def _now_iso(now: datetime | None) -> str:
@@ -31,16 +34,31 @@ def _signals(anomaly_data: dict) -> dict[tuple[int, str], dict]:
         key = (server_id, kind)
         severity = "critical" if item["severity"] == "high" else "warning"
         existing = signals.get(key)
-        detail = {"anomaly": item, "inference_only": True}
         if existing is None or severity == "critical":
             signals[key] = {
                 "severity": severity,
                 "window": f'{anomaly_data["days"]}d_history',
-                "metric_value": None,
-                "baseline_value": None,
-                "detail": detail,
+                "marker": str(anomaly_data.get("snapshot_marker") or item["at"]),
+                "anomaly": item,
             }
     return signals
+
+
+def _decode_detail(raw: str | None) -> dict:
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _append_evidence(detail: dict, *, at: str, state: str, anomaly: dict | None) -> dict:
+    history = list(detail.get("evidence_history") or [])
+    history.append({"at": at, "state": state, "anomaly": anomaly})
+    detail["evidence_history"] = history[-MAX_EVIDENCE:]
+    return detail
 
 
 def evaluate_topology_incidents(
@@ -50,33 +68,48 @@ def evaluate_topology_incidents(
 ) -> dict:
     current = _now_iso(now)
     data = topology_anomalies(storage)
+    marker = str(data.get("snapshot_marker") or current)
     signals = _signals(data)
-    created = updated = resolved = 0
+    created = updated = resolved = pending = 0
 
     with storage.connect() as conn:
         rows = conn.execute(
             """
-            SELECT id, server_id, kind
+            SELECT id, server_id, kind, severity, resolved_at, detail_json
             FROM propagation_incidents
             WHERE resolved_at IS NULL AND kind LIKE 'topology_%'
             """
         ).fetchall()
         open_by_key = {
-            (int(row["server_id"]), str(row["kind"])): int(row["id"])
+            (int(row["server_id"]), str(row["kind"])): row
             for row in rows
         }
 
         for key, signal in signals.items():
             server_id, kind = key
-            incident_id = open_by_key.get(key)
-            detail_json = json.dumps(signal["detail"], sort_keys=True)
-            if incident_id is None:
+            row = open_by_key.get(key)
+            if row is None:
+                detail = {
+                    "lifecycle_state": "open" if signal["severity"] == "critical" else "pending",
+                    "signal_streak": 1,
+                    "recovery_streak": 0,
+                    "last_signal_marker": signal["marker"],
+                    "last_evaluated_marker": marker,
+                    "opened_at": current if signal["severity"] == "critical" else None,
+                    "inference_only": True,
+                }
+                _append_evidence(
+                    detail,
+                    at=current,
+                    state=detail["lifecycle_state"],
+                    anomaly=signal["anomaly"],
+                )
                 conn.execute(
                     """
                     INSERT INTO propagation_incidents(
                         server_id, kind, severity, started_at, updated_at,
                         window, metric_value, baseline_value, detail_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?)
                     """,
                     (
                         server_id,
@@ -85,49 +118,114 @@ def evaluate_topology_incidents(
                         current,
                         current,
                         signal["window"],
-                        signal["metric_value"],
-                        signal["baseline_value"],
-                        detail_json,
+                        json.dumps(detail, sort_keys=True),
                     ),
                 )
-                created += 1
-            else:
-                conn.execute(
-                    """
-                    UPDATE propagation_incidents
-                    SET severity = ?, updated_at = ?, window = ?, detail_json = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        signal["severity"],
-                        current,
-                        signal["window"],
-                        detail_json,
-                        incident_id,
-                    ),
-                )
-                updated += 1
+                if detail["lifecycle_state"] == "open":
+                    created += 1
+                else:
+                    pending += 1
+                continue
 
-        for key, incident_id in open_by_key.items():
-            if key not in signals:
+            incident_id = int(row["id"])
+            detail = _decode_detail(row["detail_json"])
+            lifecycle_state = str(detail.get("lifecycle_state") or "open")
+            last_signal_marker = detail.get("last_signal_marker")
+            signal_streak = int(detail.get("signal_streak") or 0)
+            if signal["marker"] != last_signal_marker:
+                signal_streak += 1
+                detail["last_signal_marker"] = signal["marker"]
+                _append_evidence(detail, at=current, state="signal", anomaly=signal["anomaly"])
+            detail["signal_streak"] = signal_streak
+            detail["recovery_streak"] = 0
+            detail["last_evaluated_marker"] = marker
+
+            should_open = signal["severity"] == "critical" or signal_streak >= WARNING_OPEN_STREAK
+            if lifecycle_state == "pending" and should_open:
+                lifecycle_state = "open"
+                detail["opened_at"] = current
+                created += 1
+            elif lifecycle_state in {"open", "recovering"}:
+                lifecycle_state = "open"
+                updated += 1
+            else:
+                pending += 1
+            detail["lifecycle_state"] = lifecycle_state
+
+            conn.execute(
+                """
+                UPDATE propagation_incidents
+                SET severity = ?, updated_at = ?, window = ?, detail_json = ?
+                WHERE id = ?
+                """,
+                (
+                    signal["severity"],
+                    current,
+                    signal["window"],
+                    json.dumps(detail, sort_keys=True),
+                    incident_id,
+                ),
+            )
+
+        for key, row in open_by_key.items():
+            if key in signals:
+                continue
+            incident_id = int(row["id"])
+            detail = _decode_detail(row["detail_json"])
+            lifecycle_state = str(detail.get("lifecycle_state") or "open")
+            if detail.get("last_evaluated_marker") == marker:
+                continue
+            detail["last_evaluated_marker"] = marker
+
+            if lifecycle_state == "pending":
+                detail["lifecycle_state"] = "suppressed"
+                _append_evidence(detail, at=current, state="suppressed", anomaly=None)
                 conn.execute(
                     """
                     UPDATE propagation_incidents
-                    SET updated_at = ?, resolved_at = ?
+                    SET updated_at = ?, resolved_at = ?, detail_json = ?
                     WHERE id = ?
                     """,
-                    (current, current, incident_id),
+                    (current, current, json.dumps(detail, sort_keys=True), incident_id),
+                )
+                continue
+
+            recovery_streak = int(detail.get("recovery_streak") or 0) + 1
+            detail["recovery_streak"] = recovery_streak
+            if recovery_streak >= RECOVERY_STREAK:
+                detail["lifecycle_state"] = "resolved"
+                _append_evidence(detail, at=current, state="resolved", anomaly=None)
+                conn.execute(
+                    """
+                    UPDATE propagation_incidents
+                    SET updated_at = ?, resolved_at = ?, detail_json = ?
+                    WHERE id = ?
+                    """,
+                    (current, current, json.dumps(detail, sort_keys=True), incident_id),
                 )
                 resolved += 1
+            else:
+                detail["lifecycle_state"] = "recovering"
+                _append_evidence(detail, at=current, state="recovering", anomaly=None)
+                conn.execute(
+                    """
+                    UPDATE propagation_incidents
+                    SET updated_at = ?, detail_json = ?
+                    WHERE id = ?
+                    """,
+                    (current, json.dumps(detail, sort_keys=True), incident_id),
+                )
+                updated += 1
         conn.commit()
 
     return {
         "evaluated_at": current,
+        "snapshot_marker": marker,
         "signal_count": len(signals),
         "created_count": created,
         "updated_count": updated,
         "resolved_count": resolved,
-        "open_incident_count": len(signals),
+        "pending_count": pending,
         "authoritative_topology": False,
     }
 
@@ -158,8 +256,11 @@ def list_topology_incidents(
     result = []
     for row in rows:
         item = dict(row)
-        item["status"] = "open" if item["resolved_at"] is None else "resolved"
-        item["detail"] = json.loads(item.pop("detail_json"))
+        item["detail"] = _decode_detail(item.pop("detail_json"))
+        lifecycle_state = str(item["detail"].get("lifecycle_state") or "open")
+        if lifecycle_state in {"pending", "suppressed"}:
+            continue
+        item["status"] = lifecycle_state if item["resolved_at"] is None else "resolved"
         item["authoritative_topology"] = False
         result.append(item)
     return result
