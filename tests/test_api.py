@@ -6,6 +6,7 @@ from urllib.request import urlopen
 
 from nntpintel.api import make_server
 from nntpintel.groups import GroupInventory, GroupRecord
+from nntpintel.probe import ProbeObservation, TLSObservation
 from nntpintel.storage import Storage
 
 
@@ -24,6 +25,21 @@ def _get_html(url: str) -> str:
 def _populated_storage(tmp_path) -> tuple[Storage, GroupInventory]:
     storage = Storage(tmp_path / "nntpintel.db")
     endpoint_id = storage.ensure_endpoint("news.example.test", port=119)
+    observation = ProbeObservation(
+        observed_at=datetime(2026, 9, 9, 2, 55, tzinfo=UTC).isoformat(),
+        host="news.example.test",
+        port=119,
+        transport="tcp",
+        connect_ms=12.5,
+        greeting_code=200,
+        greeting="200 test server ready",
+        posting_allowed=True,
+        capabilities=["VERSION 2", "READER", "STARTTLS"],
+        mode_reader_code=200,
+        mode_reader_response="200 Reader mode",
+        tls=TLSObservation(enabled=True, mode="starttls", protocol="TLSv1.3", cipher="TEST"),
+    )
+    storage.record_observation(endpoint_id, observation)
     inventory = GroupInventory(
         observed_at=datetime(2026, 9, 9, 3, 0, tzinfo=UTC).isoformat(),
         host="news.example.test",
@@ -87,6 +103,10 @@ def test_api_lists_core_resources_and_server_detail(tmp_path):
         detail = _get_json(f"{base}/servers/{server_id}")
         assert detail["host"] == "news.example.test"
         assert detail["endpoints"][0]["port"] == 119
+        assert detail["observations"][0]["connect_ms"] == 12.5
+        assert detail["observations"][0]["capabilities"] == ["VERSION 2", "READER", "STARTTLS"]
+        assert detail["observations"][0]["tls"]["protocol"] == "TLSv1.3"
+        assert detail["events"][0]["newsgroup"] == "comp.lang.python"
     finally:
         server.shutdown()
         server.server_close()
@@ -114,6 +134,17 @@ def test_web_dashboard_renders_observed_data(tmp_path):
         assert "Servers and endpoints" in servers
         assert "news.example.test" in servers
         assert "119" in servers
+        assert 'href="/web/servers/' in servers
+
+        server_id = _get_json(f"{base}/servers")[0]["id"]
+        detail = _get_html(f"{base}/web/servers/{server_id}")
+        assert "Observation history" in detail
+        assert "Group changes" in detail
+        assert "12.5" in detail
+        assert "VERSION 2, READER, STARTTLS" in detail
+        assert "TLSv1.3" in detail
+        assert "comp.lang.python" in detail
+        assert "appeared" in detail
 
         groups = _get_html(f"{base}/web/groups")
         assert "Newsgroups" in groups
