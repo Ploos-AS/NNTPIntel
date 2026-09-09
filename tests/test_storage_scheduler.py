@@ -130,13 +130,13 @@ def test_scheduler_runtime_failure_backoff_and_recovery(tmp_path):
     thread.join(timeout=2)
     listener.close()
 
-    endpoint = list(storage.list_endpoints())[0]
+    endpoint = next(iter(storage.list_endpoints()))
     assert endpoint["consecutive_failures"] == 0
     assert storage.observation_count() == 1
 
     _force_due(storage, endpoint_id)
     assert run_once(storage, config=config) == 1
-    endpoint = list(storage.list_endpoints())[0]
+    endpoint = next(iter(storage.list_endpoints()))
     assert endpoint["consecutive_failures"] == 1
     failure_next = datetime.fromisoformat(endpoint["next_probe_at"])
     failure_last = datetime.fromisoformat(endpoint["last_probe_at"])
@@ -151,7 +151,7 @@ def test_scheduler_runtime_failure_backoff_and_recovery(tmp_path):
     thread.join(timeout=2)
     listener.close()
 
-    endpoint = list(storage.list_endpoints())[0]
+    endpoint = next(iter(storage.list_endpoints()))
     assert endpoint["consecutive_failures"] == 0
     recovery_next = datetime.fromisoformat(endpoint["next_probe_at"])
     recovery_last = datetime.fromisoformat(endpoint["last_probe_at"])
