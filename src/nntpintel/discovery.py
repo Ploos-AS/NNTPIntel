@@ -1,9 +1,11 @@
 # ruff: noqa: I001
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from urllib import parse
+from html.parser import HTMLParser
+from urllib import parse, request
 
 from nntpintel.storage import Storage
 
@@ -23,9 +25,18 @@ CREATE TABLE IF NOT EXISTS server_sources (
     source_id INTEGER NOT NULL REFERENCES discovery_sources(id) ON DELETE CASCADE,
     first_seen_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY(server_id, source_id)
 );
 """
+
+MAX_SOURCE_BYTES = 1024 * 1024
+BUILTIN_SOURCES = {
+    "vivil-open-nntp": (
+        "https://vivil.free.fr/nntpeng.htm",
+        "open-nntp-html",
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -71,7 +82,16 @@ def parse_seed(value: str) -> Seed:
 def ensure_discovery_schema(storage: Storage) -> None:
     with storage.connect() as conn:
         conn.executescript(DISCOVERY_SQL)
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(server_sources)")}
+        if "active" not in columns:
+            conn.execute("ALTER TABLE server_sources ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
         conn.commit()
+
+
+def _server_id(storage: Storage, host: str) -> int | None:
+    with storage.connect() as conn:
+        row = conn.execute("SELECT id FROM servers WHERE host = ?", (host,)).fetchone()
+        return None if row is None else int(row["id"])
 
 
 def import_seeds(
@@ -80,6 +100,8 @@ def import_seeds(
     *,
     source: str,
     source_ref: str | None = None,
+    activate: bool = False,
+    snapshot: bool = False,
 ) -> dict[str, int]:
     ensure_discovery_schema(storage)
     source_name = source.strip()
@@ -113,10 +135,26 @@ def import_seeds(
         source_id = int(
             conn.execute("SELECT id FROM discovery_sources WHERE name = ?", (source_name,)).fetchone()["id"]
         )
+        previous = {
+            row["host"]
+            for row in conn.execute(
+                """
+                SELECT s.host
+                FROM server_sources ss
+                JOIN servers s ON s.id = ss.server_id
+                WHERE ss.source_id = ? AND ss.active = 1
+                """,
+                (source_id,),
+            )
+        }
+        if snapshot:
+            conn.execute("UPDATE server_sources SET active = 0 WHERE source_id = ?", (source_id,))
         conn.commit()
 
     imported = 0
+    current_hosts: set[str] = set()
     for seed in unique:
+        existed = _server_id(storage, seed.host) is not None
         endpoint_id = storage.ensure_endpoint(
             seed.host,
             port=seed.port,
@@ -127,18 +165,115 @@ def import_seeds(
             server_id = int(
                 conn.execute("SELECT server_id FROM endpoints WHERE id = ?", (endpoint_id,)).fetchone()["server_id"]
             )
+            if not existed and not activate:
+                conn.execute("UPDATE servers SET enabled = 0 WHERE id = ?", (server_id,))
             conn.execute(
                 """
-                INSERT INTO server_sources(server_id, source_id, first_seen_at, last_seen_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(server_id, source_id) DO UPDATE SET last_seen_at = excluded.last_seen_at
+                INSERT INTO server_sources(server_id, source_id, first_seen_at, last_seen_at, active)
+                VALUES (?, ?, ?, ?, 1)
+                ON CONFLICT(server_id, source_id) DO UPDATE SET
+                    last_seen_at = excluded.last_seen_at,
+                    active = 1
                 """,
                 (server_id, source_id, now, now),
             )
             conn.commit()
+        current_hosts.add(seed.host)
         imported += 1
 
-    return {"accepted": len(unique), "imported": imported, "rejected": rejected}
+    added = len(current_hosts - previous)
+    still_present = len(current_hosts & previous)
+    missing = len(previous - current_hosts) if snapshot else 0
+    return {
+        "accepted": len(unique),
+        "imported": imported,
+        "rejected": rejected,
+        "added": added,
+        "still_present": still_present,
+        "missing": missing,
+    }
+
+
+class _TextCollector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+
+_HOST_RE = re.compile(r"(?<![A-Za-z0-9.-])(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?![A-Za-z0-9.-])")
+
+
+def extract_seeds(content: str, adapter: str) -> list[str]:
+    if adapter == "text":
+        return content.splitlines()
+    if adapter == "open-nntp-html":
+        parser = _TextCollector()
+        parser.feed(content)
+        hosts: list[str] = []
+        for part in parser.parts:
+            for host in _HOST_RE.findall(part):
+                lowered = host.lower()
+                if lowered.startswith(("news.", "nntp.")) or "usenet" in lowered:
+                    hosts.append(lowered)
+        return list(dict.fromkeys(hosts))
+    raise ValueError(f"unknown discovery adapter: {adapter}")
+
+
+def fetch_source(url: str, *, timeout: float = 15.0) -> str:
+    parsed = parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("discovery source must use http or https")
+    req = request.Request(url, headers={"User-Agent": "NNTPIntel/0.1 discovery"})
+    with request.urlopen(req, timeout=timeout) as response:
+        data = response.read(MAX_SOURCE_BYTES + 1)
+    if len(data) > MAX_SOURCE_BYTES:
+        raise ValueError("discovery source exceeds size limit")
+    return data.decode("utf-8", errors="replace")
+
+
+def refresh_source(
+    storage: Storage,
+    *,
+    source: str,
+    source_ref: str,
+    adapter: str,
+    activate: bool = False,
+    content: str | None = None,
+) -> dict[str, int]:
+    body = fetch_source(source_ref) if content is None else content
+    seeds = extract_seeds(body, adapter)
+    return import_seeds(
+        storage,
+        seeds,
+        source=source,
+        source_ref=source_ref,
+        activate=activate,
+        snapshot=True,
+    )
+
+
+def refresh_builtin_source(
+    storage: Storage,
+    name: str,
+    *,
+    activate: bool = False,
+    content: str | None = None,
+) -> dict[str, int]:
+    try:
+        source_ref, adapter = BUILTIN_SOURCES[name]
+    except KeyError as exc:
+        raise ValueError(f"unknown built-in source: {name}") from exc
+    return refresh_source(
+        storage,
+        source=name,
+        source_ref=source_ref,
+        adapter=adapter,
+        activate=activate,
+        content=content,
+    )
 
 
 def list_sources(storage: Storage) -> list[dict]:
@@ -147,7 +282,8 @@ def list_sources(storage: Storage) -> list[dict]:
         rows = conn.execute(
             """
             SELECT ds.id, ds.name, ds.source_ref, ds.enabled, ds.created_at, ds.last_import_at,
-                   COUNT(ss.server_id) AS server_count
+                   COUNT(ss.server_id) AS server_count,
+                   COALESCE(SUM(CASE WHEN ss.active = 1 THEN 1 ELSE 0 END), 0) AS active_server_count
             FROM discovery_sources ds
             LEFT JOIN server_sources ss ON ss.source_id = ds.id
             GROUP BY ds.id
