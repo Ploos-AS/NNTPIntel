@@ -10,42 +10,8 @@ from typing import Any
 from nntpintel.candidates import qualify_candidates
 from nntpintel.discovery import BUILTIN_SOURCES, refresh_builtin_source
 from nntpintel.probe import ProbeObservation, probe
-from nntpintel.storage import Storage
+from nntpintel.storage import SCHEMA_VERSION, Storage
 
-
-CYCLE_SQL = """
-CREATE TABLE IF NOT EXISTS candidate_cycle_runs (
-    id INTEGER PRIMARY KEY,
-    source TEXT NOT NULL,
-    started_at TEXT NOT NULL,
-    finished_at TEXT,
-    status TEXT NOT NULL,
-    added INTEGER NOT NULL DEFAULT 0,
-    still_present INTEGER NOT NULL DEFAULT 0,
-    missing INTEGER NOT NULL DEFAULT 0,
-    qualification_count INTEGER NOT NULL DEFAULT 0,
-    classifications_json TEXT NOT NULL DEFAULT '{}',
-    promotion_count INTEGER NOT NULL DEFAULT 0,
-    error TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_candidate_cycle_runs_source_time
-ON candidate_cycle_runs(source, started_at DESC);
-
-CREATE TABLE IF NOT EXISTS candidate_cycle_schedule (
-    source TEXT PRIMARY KEY,
-    enabled INTEGER NOT NULL DEFAULT 1,
-    interval_seconds INTEGER NOT NULL DEFAULT 21600,
-    candidate_limit INTEGER NOT NULL DEFAULT 3,
-    timeout_seconds REAL NOT NULL DEFAULT 5.0,
-    next_cycle_at TEXT,
-    last_cycle_at TEXT,
-    consecutive_failures INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE INDEX IF NOT EXISTS idx_candidate_cycle_schedule_due
-ON candidate_cycle_schedule(enabled, next_cycle_at);
-"""
 
 MIN_CYCLE_INTERVAL_SECONDS = 3600
 MAX_CYCLE_INTERVAL_SECONDS = 604800
@@ -58,8 +24,9 @@ def _now() -> str:
 
 def ensure_cycle_schema(storage: Storage) -> None:
     with storage.connect() as conn:
-        conn.executescript(CYCLE_SQL)
-        conn.commit()
+        row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+    if row is None or int(row["version"]) != SCHEMA_VERSION:
+        raise RuntimeError("cycle schema requires initialized Storage schema")
 
 
 def list_cycle_runs(
