@@ -126,6 +126,7 @@ def evaluate_topology_incidents(
                     "last_evaluated_marker": marker,
                     "opened_at": current if signal["severity"] == "critical" else None,
                     "inference_only": True,
+                    "evidence_ref": f"server:{server_id}",
                 }
                 _append_evidence(
                     detail,
@@ -158,6 +159,7 @@ def evaluate_topology_incidents(
 
             incident_id = int(row["id"])
             detail = _decode_detail(row["detail_json"])
+            detail.setdefault("evidence_ref", f"server:{server_id}")
             lifecycle_state = str(detail.get("lifecycle_state") or "open")
             last_signal_marker = detail.get("last_signal_marker")
             signal_streak = int(detail.get("signal_streak") or 0)
@@ -201,6 +203,7 @@ def evaluate_topology_incidents(
                 continue
             incident_id = int(row["id"])
             detail = _decode_detail(row["detail_json"])
+            detail.setdefault("evidence_ref", f"server:{int(row['server_id'])}")
             lifecycle_state = str(detail.get("lifecycle_state") or "open")
             if detail.get("last_evaluated_marker") == marker:
                 continue
@@ -302,6 +305,7 @@ def list_topology_incidents(
         item["status"] = lifecycle_state if item["resolved_at"] is None else "resolved"
         item["impact_score"] = impact_by_server.get(int(item["server_id"]), 0.0)
         server_quality = quality_by_server.get(int(item["server_id"]))
+        item["evidence_ref"] = str(item["detail"].get("evidence_ref") or f"server:{item['server_id']}")
         item["evidence_level"] = _evidence_level(server_quality, str(quality["quality_level"]))
         item["quality_score"] = int(quality["quality_score"])
         item["quality_level"] = str(quality["quality_level"])
