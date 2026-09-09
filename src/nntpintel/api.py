@@ -17,6 +17,7 @@ from nntpintel.propagation_topology_conclusions import topology_conclusions
 from nntpintel.propagation_topology_cross_cluster import cross_cluster_intelligence
 from nntpintel.propagation_topology_evidence import topology_evidence
 from nntpintel.propagation_topology_explain import explain_topology_ref
+from nntpintel.propagation_topology_export import topology_evidence_bundle
 from nntpintel.propagation_topology_history import topology_history
 from nntpintel.propagation_topology_impact import topology_impact
 from nntpintel.propagation_topology_incidents import list_topology_incidents
@@ -280,6 +281,10 @@ class APIHandler(BaseHTTPRequestHandler):
             except ValueError:
                 self._send_json({"error": "invalid conclusion kind"}, HTTPStatus.BAD_REQUEST); return
             self._send_json(payload); return
+        if path.startswith("/propagation/topology/export/"):
+            evidence_ref = unquote(path.split("/propagation/topology/export/", 1)[1])
+            bundle = topology_evidence_bundle(self.storage, evidence_ref)
+            self._send_json(bundle if bundle is not None else {"error": "not found"}, HTTPStatus.OK if bundle is not None else HTTPStatus.NOT_FOUND); return
         if path.startswith("/propagation/topology/explain/"):
             evidence_ref = unquote(path.split("/propagation/topology/explain/", 1)[1])
             explanation = explain_topology_ref(self.storage, evidence_ref)
