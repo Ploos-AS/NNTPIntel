@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from nntpintel.candidate_observability import list_candidate_observability
 from nntpintel.candidates import list_candidate_qualifications
 from nntpintel.cycle import list_cycle_runs
+from nntpintel.propagation_analytics import propagation_analytics
 from nntpintel.propagation_view import (
     get_propagation_article,
     list_propagation_articles,
@@ -55,32 +56,24 @@ def list_groups(storage: Storage) -> list[dict]:
         SELECT n.id, n.name, h.name AS hierarchy,
                n.first_seen_at, n.last_seen_at,
                (
-                   SELECT gs.high_water
-                   FROM group_snapshots gs
+                   SELECT gs.high_water FROM group_snapshots gs
                    WHERE gs.newsgroup_id = n.id
-                   ORDER BY gs.observed_at DESC, gs.id DESC
-                   LIMIT 1
+                   ORDER BY gs.observed_at DESC, gs.id DESC LIMIT 1
                ) AS high_water,
                (
-                   SELECT gs.low_water
-                   FROM group_snapshots gs
+                   SELECT gs.low_water FROM group_snapshots gs
                    WHERE gs.newsgroup_id = n.id
-                   ORDER BY gs.observed_at DESC, gs.id DESC
-                   LIMIT 1
+                   ORDER BY gs.observed_at DESC, gs.id DESC LIMIT 1
                ) AS low_water,
                (
-                   SELECT gs.posting_status
-                   FROM group_snapshots gs
+                   SELECT gs.posting_status FROM group_snapshots gs
                    WHERE gs.newsgroup_id = n.id
-                   ORDER BY gs.observed_at DESC, gs.id DESC
-                   LIMIT 1
+                   ORDER BY gs.observed_at DESC, gs.id DESC LIMIT 1
                ) AS posting_status,
                (
-                   SELECT gs.description
-                   FROM group_snapshots gs
+                   SELECT gs.description FROM group_snapshots gs
                    WHERE gs.newsgroup_id = n.id
-                   ORDER BY gs.observed_at DESC, gs.id DESC
-                   LIMIT 1
+                   ORDER BY gs.observed_at DESC, gs.id DESC LIMIT 1
                ) AS description
         FROM newsgroups n
         JOIN hierarchies h ON h.id = n.hierarchy_id
@@ -166,31 +159,21 @@ def server_availability(observations: list[dict]) -> dict:
     successes = sum(1 for item in ordered if item["success"])
     failures = total - successes
     latencies = [float(item["connect_ms"]) for item in ordered if item["connect_ms"] is not None]
-
     transitions: list[dict] = []
     previous: bool | None = None
     for item in ordered:
         current = bool(item["success"])
         if previous is not None and current != previous:
-            transitions.append(
-                {
-                    "observed_at": item["observed_at"],
-                    "endpoint_id": item["endpoint_id"],
-                    "port": item["port"],
-                    "event": "recovered" if current else "failed",
-                }
-            )
+            transitions.append({
+                "observed_at": item["observed_at"],
+                "endpoint_id": item["endpoint_id"],
+                "port": item["port"],
+                "event": "recovered" if current else "failed",
+            })
         previous = current
-
     latency_series = [
-        {
-            "observed_at": item["observed_at"],
-            "endpoint_id": item["endpoint_id"],
-            "port": item["port"],
-            "connect_ms": item["connect_ms"],
-        }
-        for item in ordered
-        if item["connect_ms"] is not None
+        {"observed_at": item["observed_at"], "endpoint_id": item["endpoint_id"], "port": item["port"], "connect_ms": item["connect_ms"]}
+        for item in ordered if item["connect_ms"] is not None
     ]
     return {
         "sample_count": total,
@@ -206,19 +189,11 @@ def server_availability(observations: list[dict]) -> dict:
 
 
 def get_server(storage: Storage, server_id: int) -> dict | None:
-    rows = _rows(
-        storage,
-        "SELECT id, host, enabled, created_at FROM servers WHERE id = ?",
-        (server_id,),
-    )
+    rows = _rows(storage, "SELECT id, host, enabled, created_at FROM servers WHERE id = ?", (server_id,))
     if not rows:
         return None
     server = rows[0]
-    server["endpoints"] = _rows(
-        storage,
-        "SELECT * FROM endpoints WHERE server_id = ? ORDER BY port",
-        (server_id,),
-    )
+    server["endpoints"] = _rows(storage, "SELECT * FROM endpoints WHERE server_id = ? ORDER BY port", (server_id,))
     server["observations"] = list_server_observations(storage, server_id, limit=100)
     server["events"] = list_server_events(storage, server_id, limit=100)
     server["availability"] = server_availability(server["observations"])
@@ -248,132 +223,71 @@ class APIHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path in {"/", "/web"}:
             from nntpintel.web import dashboard
-
-            self._send_html(dashboard(self.storage))
-            return
+            self._send_html(dashboard(self.storage)); return
         if path == "/web/servers":
             from nntpintel.web import servers_page
-
-            self._send_html(servers_page(self.storage))
-            return
+            self._send_html(servers_page(self.storage)); return
         if path == "/web/sources":
             from nntpintel.source_web import sources_page
-
-            self._send_html(sources_page(self.storage))
-            return
+            self._send_html(sources_page(self.storage)); return
         if path == "/web/candidates":
             from nntpintel.candidate_web import candidates_page
-
-            self._send_html(candidates_page(self.storage))
-            return
+            self._send_html(candidates_page(self.storage)); return
         if path == "/web/cycles":
             from nntpintel.cycle_web import cycle_runs_page
-
-            self._send_html(cycle_runs_page(self.storage))
-            return
+            self._send_html(cycle_runs_page(self.storage)); return
         if path == "/web/propagation":
             from nntpintel.propagation_web import propagation_page
-
-            self._send_html(propagation_page(self.storage))
-            return
+            self._send_html(propagation_page(self.storage)); return
         if path.startswith("/web/propagation/"):
             from nntpintel.propagation_web import propagation_detail_page
-
             try:
                 article_id = int(path.rsplit("/", 1)[1])
             except ValueError:
-                self._send_html("<h1>Not found</h1>", HTTPStatus.NOT_FOUND)
-                return
+                self._send_html("<h1>Not found</h1>", HTTPStatus.NOT_FOUND); return
             html = propagation_detail_page(self.storage, article_id)
-            if html is None:
-                self._send_html("<h1>Not found</h1>", HTTPStatus.NOT_FOUND)
-            else:
-                self._send_html(html)
-            return
+            self._send_html(html if html is not None else "<h1>Not found</h1>", HTTPStatus.OK if html is not None else HTTPStatus.NOT_FOUND); return
         if path.startswith("/web/servers/"):
             from nntpintel.web import server_detail_page
-
             try:
                 server_id = int(path.rsplit("/", 1)[1])
             except ValueError:
-                self._send_html("<h1>Not found</h1>", HTTPStatus.NOT_FOUND)
-                return
+                self._send_html("<h1>Not found</h1>", HTTPStatus.NOT_FOUND); return
             html = server_detail_page(self.storage, server_id)
-            if html is None:
-                self._send_html("<h1>Not found</h1>", HTTPStatus.NOT_FOUND)
-            else:
-                self._send_html(html)
-            return
+            self._send_html(html if html is not None else "<h1>Not found</h1>", HTTPStatus.OK if html is not None else HTTPStatus.NOT_FOUND); return
         if path == "/web/groups":
             from nntpintel.web import groups_page
-
-            self._send_html(groups_page(self.storage))
-            return
+            self._send_html(groups_page(self.storage)); return
         if path == "/web/events":
             from nntpintel.web import events_page
-
-            self._send_html(events_page(self.storage))
-            return
-        if path == "/healthz":
-            self._send_json({"status": "ok"})
-            return
-        if path == "/servers":
-            self._send_json(list_servers(self.storage))
-            return
-        if path == "/endpoints":
-            self._send_json(list_endpoints(self.storage))
-            return
-        if path == "/groups":
-            self._send_json(list_groups(self.storage))
-            return
-        if path == "/hierarchies":
-            self._send_json(list_hierarchies(self.storage))
-            return
-        if path == "/events":
-            self._send_json(list_events(self.storage))
-            return
-        if path == "/sources":
-            self._send_json(list_source_management(self.storage))
-            return
-        if path == "/candidates":
-            self._send_json(list_candidate_observability(self.storage))
-            return
-        if path == "/candidate-qualifications":
-            self._send_json(list_candidate_qualifications(self.storage))
-            return
-        if path == "/cycle-runs":
-            self._send_json(list_cycle_runs(self.storage))
-            return
-        if path == "/propagation/articles":
-            self._send_json(list_propagation_articles(self.storage))
-            return
-        if path == "/propagation/campaigns":
-            self._send_json(list_propagation_campaigns(self.storage))
-            return
+            self._send_html(events_page(self.storage)); return
+        if path == "/healthz": self._send_json({"status": "ok"}); return
+        if path == "/servers": self._send_json(list_servers(self.storage)); return
+        if path == "/endpoints": self._send_json(list_endpoints(self.storage)); return
+        if path == "/groups": self._send_json(list_groups(self.storage)); return
+        if path == "/hierarchies": self._send_json(list_hierarchies(self.storage)); return
+        if path == "/events": self._send_json(list_events(self.storage)); return
+        if path == "/sources": self._send_json(list_source_management(self.storage)); return
+        if path == "/candidates": self._send_json(list_candidate_observability(self.storage)); return
+        if path == "/candidate-qualifications": self._send_json(list_candidate_qualifications(self.storage)); return
+        if path == "/cycle-runs": self._send_json(list_cycle_runs(self.storage)); return
+        if path == "/propagation/analytics": self._send_json(propagation_analytics(self.storage)); return
+        if path == "/propagation/articles": self._send_json(list_propagation_articles(self.storage)); return
+        if path == "/propagation/campaigns": self._send_json(list_propagation_campaigns(self.storage)); return
         if path.startswith("/propagation/articles/"):
             try:
                 article_id = int(path.rsplit("/", 1)[1])
             except ValueError:
-                self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
-                return
+                self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND); return
             article = get_propagation_article(self.storage, article_id)
-            if article is None:
-                self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
-            else:
-                self._send_json(article)
-            return
+            self._send_json(article if article is not None else {"error": "not found"}, HTTPStatus.OK if article is not None else HTTPStatus.NOT_FOUND); return
         if path.startswith("/servers/"):
             try:
                 server_id = int(path.rsplit("/", 1)[1])
             except ValueError:
-                self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
-                return
+                self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND); return
             server = get_server(self.storage, server_id)
-            if server is None:
-                self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
-            else:
-                self._send_json(server)
-            return
+            self._send_json(server if server is not None else {"error": "not found"}, HTTPStatus.OK if server is not None else HTTPStatus.NOT_FOUND); return
         self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
     def log_message(self, format: str, *args: object) -> None:
