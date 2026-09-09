@@ -151,6 +151,51 @@ def list_server_events(storage: Storage, server_id: int, *, limit: int = 100) ->
     )
 
 
+def server_availability(observations: list[dict]) -> dict:
+    ordered = list(reversed(observations))
+    total = len(ordered)
+    successes = sum(1 for item in ordered if item["success"])
+    failures = total - successes
+    latencies = [float(item["connect_ms"]) for item in ordered if item["connect_ms"] is not None]
+
+    transitions: list[dict] = []
+    previous: bool | None = None
+    for item in ordered:
+        current = bool(item["success"])
+        if previous is not None and current != previous:
+            transitions.append(
+                {
+                    "observed_at": item["observed_at"],
+                    "endpoint_id": item["endpoint_id"],
+                    "port": item["port"],
+                    "event": "recovered" if current else "failed",
+                }
+            )
+        previous = current
+
+    latency_series = [
+        {
+            "observed_at": item["observed_at"],
+            "endpoint_id": item["endpoint_id"],
+            "port": item["port"],
+            "connect_ms": item["connect_ms"],
+        }
+        for item in ordered
+        if item["connect_ms"] is not None
+    ]
+    return {
+        "sample_count": total,
+        "success_count": successes,
+        "failure_count": failures,
+        "availability_percent": round((successes / total) * 100, 2) if total else None,
+        "average_latency_ms": round(sum(latencies) / len(latencies), 2) if latencies else None,
+        "min_latency_ms": min(latencies) if latencies else None,
+        "max_latency_ms": max(latencies) if latencies else None,
+        "transitions": transitions,
+        "latency_series": latency_series,
+    }
+
+
 def get_server(storage: Storage, server_id: int) -> dict | None:
     rows = _rows(
         storage,
@@ -167,6 +212,7 @@ def get_server(storage: Storage, server_id: int) -> dict | None:
     )
     server["observations"] = list_server_observations(storage, server_id, limit=100)
     server["events"] = list_server_events(storage, server_id, limit=100)
+    server["availability"] = server_availability(server["observations"])
     return server
 
 
