@@ -5,14 +5,25 @@ from collections import defaultdict, deque
 from nntpintel.propagation_topology_impact import topology_impact
 from nntpintel.storage import Storage
 
+COMMUNITY_MIN_CONFIDENCE = 0.8
 
-def topology_communities(storage: Storage) -> dict:
+
+def topology_communities(
+    storage: Storage,
+    *,
+    min_confidence: float = COMMUNITY_MIN_CONFIDENCE,
+) -> dict:
+    if not 0.5 <= min_confidence <= 1.0:
+        raise ValueError("community min_confidence must be between 0.5 and 1.0")
+
     impact = topology_impact(storage)
     nodes = {int(item["server_id"]): dict(item) for item in impact["nodes"]}
     adjacency: dict[int, set[int]] = defaultdict(set)
     edge_by_pair: dict[tuple[int, int], dict] = {}
 
     for edge in impact["edges"]:
+        if float(edge["confidence"]) < min_confidence:
+            continue
         source = int(edge["source_server_id"])
         target = int(edge["target_server_id"])
         adjacency[source].add(target)
@@ -107,12 +118,13 @@ def topology_communities(storage: Storage) -> dict:
     )
 
     return {
-        "model": "inferred_topology_communities",
+        "model": "inferred_topology_strong_edge_communities",
         "authoritative_topology": False,
         "disclaimer": (
-            "Communities are connected components of NNTPIntel's observed inferred precedence graph; "
-            "they do not establish administrative domains, direct peering groups, or real feed clusters."
+            "Communities are connected components formed only from stronger observed inferred precedence "
+            "edges; they do not establish administrative domains, direct peering groups, or real feed clusters."
         ),
+        "min_confidence": min_confidence,
         "community_count": len(communities),
         "isolated_server_count": sum(1 for item in communities if item["server_count"] == 1),
         "communities_with_open_incidents": sum(
