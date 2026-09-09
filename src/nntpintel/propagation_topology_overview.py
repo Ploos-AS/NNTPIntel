@@ -31,23 +31,35 @@ def topology_overview(storage: Storage) -> dict:
 
     attention: list[dict] = []
     for item in high_risk_servers[:5]:
+        evidence = str(item["evidence_level"])
         attention.append(
             {
                 "priority": 1 if item["risk_score"] >= 75.0 else 2,
                 "kind": "server_risk",
                 "label": item["host"],
-                "detail": f'Risk {item["risk_score"]} ({item["risk_level"]})',
+                "detail": (
+                    f'Risk {item["risk_score"]} ({item["risk_level"]}); '
+                    f'evidence {evidence}'
+                ),
                 "score": item["risk_score"],
+                "evidence_level": evidence,
+                "evidence_caution": evidence in {"low", "limited"},
             }
         )
     for item in high_risk_communities[:3]:
+        evidence = str(item["evidence_level"])
         attention.append(
             {
                 "priority": 2,
                 "kind": "community_risk",
                 "label": f'Community {item["community_id"]}',
-                "detail": f'Risk {item["risk_score"]} ({item["risk_level"]})',
+                "detail": (
+                    f'Risk {item["risk_score"]} ({item["risk_level"]}); '
+                    f'evidence {evidence}'
+                ),
                 "score": item["risk_score"],
+                "evidence_level": evidence,
+                "evidence_caution": evidence in {"low", "limited"},
             }
         )
     if cross_cluster["incident_scope"] == "multi_community":
@@ -58,6 +70,8 @@ def topology_overview(storage: Storage) -> dict:
                 "label": "Multi-community incident scope",
                 "detail": "Open inferred topology incidents span multiple communities.",
                 "score": 100.0,
+                "evidence_level": risk["data_quality_level"],
+                "evidence_caution": risk["data_quality_level"] in {"weak", "limited"},
             }
         )
     attention.sort(key=lambda item: (item["priority"], -float(item["score"]), item["label"]))
@@ -76,9 +90,18 @@ def topology_overview(storage: Storage) -> dict:
         "authoritative_topology": False,
         "disclaimer": (
             "This overview is an operator triage summary of NNTPIntel's inferred observations. "
-            "It does not prove physical NNTP topology, direct peering, feed relationships, or real-world risk."
+            "Risk posture is not quality-adjusted; evidence confidence is shown separately so weak or "
+            "stale data lowers certainty without inflating or suppressing observed risk signals."
         ),
         "posture": posture,
+        "data_quality": {
+            "score": risk["data_quality_score"],
+            "level": risk["data_quality_level"],
+            "risk_score_quality_adjusted": False,
+            "high_risk_low_evidence_server_count": risk[
+                "high_risk_low_evidence_server_count"
+            ],
+        },
         "topology": {
             "node_count": topology["node_count"],
             "edge_count": topology["edge_count"],
