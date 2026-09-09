@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import datetime
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 
 _ALLOWED_RESOLUTIONS = {"hour", "day"}
@@ -10,23 +10,23 @@ _ALLOWED_RESOLUTIONS = {"hour", "day"}
 @dataclass(frozen=True)
 class RollupResult:
     resolution: str
-    start: datetime
-    end: datetime
+    start: datetime.datetime
+    end: datetime.datetime
     rows_written: int
 
 
-def _utc(value: datetime) -> datetime:
+def _utc(value: datetime.datetime) -> datetime.datetime:
     if value.tzinfo is None:
         raise ValueError("rollup bounds must be timezone-aware")
-    return value.astimezone(UTC)
+    return value.astimezone(datetime.UTC)
 
 
 def rebuild_server_observation_rollups(
     conn,
     *,
     resolution: str,
-    start: datetime,
-    end: datetime,
+    start: datetime.datetime,
+    end: datetime.datetime,
 ) -> RollupResult:
     """Rebuild server availability/latency rollups for a bounded UTC window.
 
@@ -108,8 +108,8 @@ def rebuild_server_observation_rollups(
 def rebuild_server_observation_rollup_chain(
     conn,
     *,
-    start: datetime,
-    end: datetime,
+    start: datetime.datetime,
+    end: datetime.datetime,
 ) -> tuple[RollupResult, RollupResult]:
     """Rebuild hourly and daily server observation rollups for one bounded window."""
 
