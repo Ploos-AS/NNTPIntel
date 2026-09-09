@@ -5,7 +5,8 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-from nntpintel.candidates import list_candidate_qualifications, list_candidates
+from nntpintel.candidate_observability import list_candidate_observability
+from nntpintel.candidates import list_candidate_qualifications
 from nntpintel.cycle import list_cycle_runs
 from nntpintel.source_management import list_source_management
 from nntpintel.storage import Storage
@@ -311,7 +312,7 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json(list_source_management(self.storage))
             return
         if path == "/candidates":
-            self._send_json(list_candidates(self.storage))
+            self._send_json(list_candidate_observability(self.storage))
             return
         if path == "/candidate-qualifications":
             self._send_json(list_candidate_qualifications(self.storage))
