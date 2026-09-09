@@ -20,6 +20,24 @@ def _utc(value: datetime.datetime) -> datetime.datetime:
     return value.astimezone(datetime.UTC)
 
 
+def _bucket_floor(value: datetime.datetime, resolution: str) -> datetime.datetime:
+    if resolution == "hour":
+        return value.replace(minute=0, second=0, microsecond=0)
+    return value.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _bucket_delete_bounds(
+    start: datetime.datetime,
+    end: datetime.datetime,
+    resolution: str,
+) -> tuple[datetime.datetime, datetime.datetime]:
+    bucket_start = _bucket_floor(start, resolution)
+    last_included = end - datetime.timedelta(microseconds=1)
+    last_bucket = _bucket_floor(last_included, resolution)
+    step = datetime.timedelta(hours=1) if resolution == "hour" else datetime.timedelta(days=1)
+    return bucket_start, last_bucket + step
+
+
 def rebuild_server_observation_rollups(
     conn,
     *,
@@ -29,9 +47,9 @@ def rebuild_server_observation_rollups(
 ) -> RollupResult:
     """Rebuild server availability/latency rollups for a bounded UTC window.
 
-    The operation is idempotent: rows for the requested resolution/window are
-    replaced from raw observations in one transaction. Buckets are attributed by
-    observation timestamp and server identity through endpoints.
+    The operation is idempotent: every aggregate bucket touched by the requested
+    raw-observation window is replaced before regeneration. Buckets are attributed
+    by observation timestamp and server identity through endpoints.
     """
 
     if resolution not in _ALLOWED_RESOLUTIONS:
@@ -42,6 +60,7 @@ def rebuild_server_observation_rollups(
     if end_utc <= start_utc:
         raise ValueError("rollup end must be after start")
 
+    delete_start, delete_end = _bucket_delete_bounds(start_utc, end_utc, resolution)
     conn.execute(
         """
         DELETE FROM server_observation_rollups
@@ -49,7 +68,7 @@ def rebuild_server_observation_rollups(
           AND bucket_start >= %s
           AND bucket_start < %s
         """,
-        (resolution, start_utc, end_utc),
+        (resolution, delete_start, delete_end),
     )
 
     result = conn.execute(
