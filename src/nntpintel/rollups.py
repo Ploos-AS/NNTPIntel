@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+import dataclasses
 import datetime
-from dataclasses import dataclass
 
 
 _ALLOWED_RESOLUTIONS = {"hour", "day"}
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class RollupResult:
     resolution: str
     start: datetime.datetime
