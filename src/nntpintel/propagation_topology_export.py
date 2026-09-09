@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 from nntpintel.propagation_topology_explain import explain_topology_ref
 from nntpintel.storage import Storage
 
-
 REF_PREFIXES = ("server:", "edge:", "risk:server:", "incident:", "community:")
 
 
