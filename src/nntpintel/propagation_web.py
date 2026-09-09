@@ -92,7 +92,7 @@ def propagation_page(storage: Storage) -> str:
     return _page(
         "Propagation",
         f"""
-<section><h2>Propagation analytics</h2><div class="cards">{analytics_cards}</div></section>
+<section><p><a href="/web/propagation/trends">Trends</a> · <a href="/web/propagation/incidents">Incidents</a> · <a href="/web/propagation/topology">Inferred topology</a></p><h2>Propagation analytics</h2><div class="cards">{analytics_cards}</div></section>
 <section><h2>Endpoint comparison</h2><table><thead><tr><th>Endpoint</th><th>Targeted articles</th><th>Visible articles</th><th>Coverage %</th><th>Median delay s</th><th>p95 delay s</th></tr></thead><tbody>{endpoint_rows}</tbody></table></section>
 <section><h2>Server comparison</h2><table><thead><tr><th>Server</th><th>Targeted articles</th><th>Visible articles</th><th>Coverage %</th><th>Median delay s</th><th>p95 delay s</th></tr></thead><tbody>{server_rows}</tbody></table></section>
 <section><h2>Propagation articles</h2><table><thead><tr><th>Message-ID</th><th>Newsgroup</th><th>Samples</th><th>Visible endpoints</th><th>First visibility</th></tr></thead><tbody>{article_rows}</tbody></table></section>
