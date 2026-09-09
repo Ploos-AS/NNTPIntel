@@ -1,6 +1,6 @@
-from io import BytesIO
 import socket
 import threading
+from io import BytesIO
 
 import pytest
 
