@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 
 _ALLOWED_RESOLUTIONS = {"hour", "day"}
@@ -55,6 +55,17 @@ def rebuild_server_observation_rollups(
 
     result = conn.execute(
         """
+        WITH scoped AS (
+            SELECT
+                e.server_id,
+                date_trunc(%s, o.observed_at) AS bucket_start,
+                o.success,
+                o.connect_ms
+            FROM observations o
+            JOIN endpoints e ON e.id = o.endpoint_id
+            WHERE o.observed_at >= %s
+              AND o.observed_at < %s
+        )
         INSERT INTO server_observation_rollups(
             server_id,
             resolution,
@@ -70,27 +81,24 @@ def rebuild_server_observation_rollups(
             generated_at
         )
         SELECT
-            e.server_id,
+            server_id,
             %s AS resolution,
-            date_trunc(%s, o.observed_at) AS bucket_start,
+            bucket_start,
             COUNT(*) AS observation_count,
-            COUNT(*) FILTER (WHERE o.success) AS success_count,
-            COUNT(*) FILTER (WHERE NOT o.success) AS failure_count,
-            AVG(CASE WHEN o.success THEN 1.0 ELSE 0.0 END)::double precision
+            COUNT(*) FILTER (WHERE success) AS success_count,
+            COUNT(*) FILTER (WHERE NOT success) AS failure_count,
+            AVG(CASE WHEN success THEN 1.0 ELSE 0.0 END)::double precision
                 AS availability_ratio,
-            COUNT(o.connect_ms) AS connect_ms_count,
-            AVG(o.connect_ms)::double precision AS connect_ms_avg,
-            MIN(o.connect_ms)::double precision AS connect_ms_min,
-            MAX(o.connect_ms)::double precision AS connect_ms_max,
+            COUNT(connect_ms) AS connect_ms_count,
+            AVG(connect_ms)::double precision AS connect_ms_avg,
+            MIN(connect_ms)::double precision AS connect_ms_min,
+            MAX(connect_ms)::double precision AS connect_ms_max,
             CURRENT_TIMESTAMP
-        FROM observations o
-        JOIN endpoints e ON e.id = o.endpoint_id
-        WHERE o.observed_at >= %s
-          AND o.observed_at < %s
-        GROUP BY e.server_id, date_trunc(%s, o.observed_at)
-        ORDER BY e.server_id, bucket_start
+        FROM scoped
+        GROUP BY server_id, bucket_start
+        ORDER BY server_id, bucket_start
         """,
-        (resolution, resolution, start_utc, end_utc, resolution),
+        (resolution, start_utc, end_utc, resolution),
     )
     rows_written = int(result.rowcount or 0)
     conn.commit()
