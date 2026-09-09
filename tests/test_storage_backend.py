@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from nntpintel.storage import Storage
