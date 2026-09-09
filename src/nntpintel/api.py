@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from nntpintel.candidate_observability import list_candidate_observability
 from nntpintel.candidates import list_candidate_qualifications
@@ -15,6 +15,7 @@ from nntpintel.propagation_topology_anomalies import topology_anomalies
 from nntpintel.propagation_topology_communities import topology_communities
 from nntpintel.propagation_topology_cross_cluster import cross_cluster_intelligence
 from nntpintel.propagation_topology_evidence import topology_evidence
+from nntpintel.propagation_topology_explain import explain_topology_ref
 from nntpintel.propagation_topology_history import topology_history
 from nntpintel.propagation_topology_impact import topology_impact
 from nntpintel.propagation_topology_incidents import list_topology_incidents
@@ -209,6 +210,11 @@ class APIHandler(BaseHTTPRequestHandler):
         if path == "/web/propagation/topology/evidence":
             from nntpintel.propagation_topology_evidence_web import evidence_page
             self._send_html(evidence_page(self.storage)); return
+        if path.startswith("/web/propagation/topology/explain/"):
+            from nntpintel.propagation_topology_explain_web import explain_page
+            evidence_ref = unquote(path.split("/web/propagation/topology/explain/", 1)[1])
+            html = explain_page(self.storage, evidence_ref)
+            self._send_html(html if html is not None else "<h1>Not found</h1>", HTTPStatus.OK if html is not None else HTTPStatus.NOT_FOUND); return
         if path.startswith("/web/propagation/"):
             from nntpintel.propagation_web import propagation_detail_page
             try: article_id = int(path.rsplit("/", 1)[1])
@@ -252,6 +258,10 @@ class APIHandler(BaseHTTPRequestHandler):
         if path == "/propagation/topology/overview": self._send_json(topology_overview(self.storage)); return
         if path == "/propagation/topology/quality": self._send_json(topology_data_quality(self.storage)); return
         if path == "/propagation/topology/evidence": self._send_json(topology_evidence(self.storage)); return
+        if path.startswith("/propagation/topology/explain/"):
+            evidence_ref = unquote(path.split("/propagation/topology/explain/", 1)[1])
+            explanation = explain_topology_ref(self.storage, evidence_ref)
+            self._send_json(explanation if explanation is not None else {"error": "not found"}, HTTPStatus.OK if explanation is not None else HTTPStatus.NOT_FOUND); return
         if path == "/propagation/articles": self._send_json(list_propagation_articles(self.storage)); return
         if path == "/propagation/campaigns": self._send_json(list_propagation_campaigns(self.storage)); return
         if path.startswith("/propagation/articles/"):
