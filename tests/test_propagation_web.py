@@ -7,6 +7,7 @@ from urllib.request import urlopen
 from nntpintel.api import make_server
 from nntpintel.propagation import record_presence, register_article
 from nntpintel.propagation_campaigns import create_campaign
+from nntpintel.propagation_view import propagation_overview
 from nntpintel.storage import Storage
 
 
@@ -64,6 +65,24 @@ def _propagation_storage(tmp_path) -> tuple[Storage, int]:
     return storage, article_id
 
 
+def test_propagation_overview_counts_measurement_state(tmp_path):
+    empty = Storage(tmp_path / "empty.db")
+    assert propagation_overview(empty) == {
+        "article_count": 0,
+        "active_campaign_count": 0,
+        "measured_endpoint_count": 0,
+        "observation_count": 0,
+    }
+
+    storage, _ = _propagation_storage(tmp_path)
+    assert propagation_overview(storage) == {
+        "article_count": 1,
+        "active_campaign_count": 1,
+        "measured_endpoint_count": 2,
+        "observation_count": 3,
+    }
+
+
 def test_propagation_api_exposes_articles_detail_and_campaigns(tmp_path):
     storage, article_id = _propagation_storage(tmp_path)
     server = make_server(storage, "127.0.0.1", 0)
@@ -89,6 +108,28 @@ def test_propagation_api_exposes_articles_detail_and_campaigns(tmp_path):
         campaigns = _get_json(f"{base}/propagation/campaigns")
         assert campaigns[0]["message_id"] == "<web-propagation@example.test>"
         assert campaigns[0]["endpoint_ids"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_dashboard_links_and_summarizes_propagation(tmp_path):
+    storage, _ = _propagation_storage(tmp_path)
+    server = make_server(storage, "127.0.0.1", 0)
+    host, port = server.server_address
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        dashboard = _get_html(f"http://{host}:{port}/")
+        assert 'href="/web/propagation"' in dashboard
+        assert "Propagation intelligence" in dashboard
+        assert "Propagation articles" in dashboard
+        assert "Active campaigns" in dashboard
+        assert "Measured propagation endpoints" in dashboard
+        assert "Propagation observations" in dashboard
+        assert ">3<" in dashboard
     finally:
         server.shutdown()
         server.server_close()
