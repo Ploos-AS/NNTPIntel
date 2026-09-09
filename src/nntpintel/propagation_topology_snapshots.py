@@ -198,6 +198,8 @@ def evidence_snapshot_timeline(
             summary = {
                 "change_count": diff["change_count"],
                 "changed_sections": diff["changed_sections"],
+                "semantic_change_count": diff["semantic_change_count"],
+                "semantic_changes": diff["semantic_changes"],
             }
         current = {
             "snapshot_id": int(row["id"]),
@@ -219,5 +221,6 @@ def evidence_snapshot_timeline(
         "limitations": [
             "The timeline records changes in NNTPIntel evidence bundles, not proven real-world topology changes.",
             "Snapshots are fingerprint-deduplicated, so unchanged states are intentionally omitted.",
+            "Semantic summaries are deterministic field interpretations, not operator-confirmed events.",
         ],
     }
