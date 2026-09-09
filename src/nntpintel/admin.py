@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from nntpintel.api import serve
+from nntpintel.candidates import list_candidate_qualifications, qualify_candidates
 from nntpintel.discovery import (
     BUILTIN_SOURCES,
     import_seeds,
@@ -49,6 +50,16 @@ def build_parser() -> argparse.ArgumentParser:
     builtin = sub.add_parser("refresh-builtin-source", help="refresh a curated NNTP discovery adapter")
     builtin.add_argument("name", choices=sorted(BUILTIN_SOURCES))
     builtin.add_argument("--activate", action="store_true")
+
+    qualify = sub.add_parser("qualify-candidates", help="safely qualify disabled discovery candidates")
+    qualify.add_argument("--limit", type=int, default=5)
+    qualify.add_argument("--timeout", type=float, default=5.0)
+
+    qualifications = sub.add_parser(
+        "list-candidate-qualifications",
+        help="list recent candidate qualification results",
+    )
+    qualifications.add_argument("--limit", type=int, default=100)
 
     sub.add_parser("list-sources", help="list discovery sources and imported server counts")
 
@@ -113,6 +124,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "refresh-builtin-source":
         result = refresh_builtin_source(storage, args.name, activate=args.activate)
         print(json.dumps(result, sort_keys=True))
+        return 0
+
+    if args.command == "qualify-candidates":
+        for row in qualify_candidates(storage, limit=args.limit, timeout=args.timeout):
+            print(json.dumps(row, sort_keys=True))
+        return 0
+
+    if args.command == "list-candidate-qualifications":
+        for row in list_candidate_qualifications(storage, limit=args.limit):
+            print(json.dumps(row, sort_keys=True))
         return 0
 
     if args.command == "list-sources":
