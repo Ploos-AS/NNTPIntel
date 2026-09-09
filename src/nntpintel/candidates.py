@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 
-from nntpintel.probe import ProbeObservation, probe
+from nntpintel.probe import ProbeObservation, qualification_probe
 from nntpintel.storage import SCHEMA_VERSION, Storage
 
 DEFAULT_REQUALIFICATION_AGE_SECONDS = 21600
@@ -119,7 +119,7 @@ def qualify_candidate(
     storage: Storage,
     endpoint: dict,
     *,
-    probe_func: Callable[..., ProbeObservation] = probe,
+    probe_func: Callable[..., ProbeObservation] = qualification_probe,
     timeout: float = 5.0,
 ) -> QualificationResult:
     ensure_candidate_schema(storage)
@@ -159,7 +159,7 @@ def qualify_candidates(
     limit: int = 5,
     timeout: float = 5.0,
     min_age_seconds: int = DEFAULT_REQUALIFICATION_AGE_SECONDS,
-    probe_func: Callable[..., ProbeObservation] = probe,
+    probe_func: Callable[..., ProbeObservation] = qualification_probe,
 ) -> list[dict]:
     results = [
         qualify_candidate(storage, endpoint, probe_func=probe_func, timeout=timeout)
