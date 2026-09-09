@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from nntpintel.candidate_observability import list_candidate_observability
 from nntpintel.candidates import list_candidate_qualifications
@@ -13,6 +13,7 @@ from nntpintel.propagation_incidents import list_propagation_incidents
 from nntpintel.propagation_topology import inferred_propagation_topology
 from nntpintel.propagation_topology_anomalies import topology_anomalies
 from nntpintel.propagation_topology_communities import topology_communities
+from nntpintel.propagation_topology_conclusions import topology_conclusions
 from nntpintel.propagation_topology_cross_cluster import cross_cluster_intelligence
 from nntpintel.propagation_topology_evidence import topology_evidence
 from nntpintel.propagation_topology_explain import explain_topology_ref
@@ -149,7 +150,9 @@ class APIHandler(BaseHTTPRequestHandler):
         self.send_response(status); self.send_header("Content-Type", "text/html; charset=utf-8"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        params = parse_qs(parsed.query)
         if path in {"/", "/web"}:
             from nntpintel.web import dashboard
             self._send_html(dashboard(self.storage)); return
@@ -210,6 +213,16 @@ class APIHandler(BaseHTTPRequestHandler):
         if path == "/web/propagation/topology/evidence":
             from nntpintel.propagation_topology_evidence_web import evidence_page
             self._send_html(evidence_page(self.storage)); return
+        if path == "/web/propagation/topology/conclusions":
+            from nntpintel.propagation_topology_conclusions_web import conclusions_page
+            kind = params.get("kind", [None])[0] or None
+            query = params.get("q", [None])[0] or None
+            conclusion_ref = params.get("ref", [None])[0] or None
+            try:
+                html = conclusions_page(self.storage, kind=kind, query=query, conclusion_ref=conclusion_ref)
+            except ValueError:
+                self._send_html("<h1>Bad request</h1>", HTTPStatus.BAD_REQUEST); return
+            self._send_html(html); return
         if path.startswith("/web/propagation/topology/explain/"):
             from nntpintel.propagation_topology_explain_web import explain_page
             evidence_ref = unquote(path.split("/web/propagation/topology/explain/", 1)[1])
@@ -258,6 +271,15 @@ class APIHandler(BaseHTTPRequestHandler):
         if path == "/propagation/topology/overview": self._send_json(topology_overview(self.storage)); return
         if path == "/propagation/topology/quality": self._send_json(topology_data_quality(self.storage)); return
         if path == "/propagation/topology/evidence": self._send_json(topology_evidence(self.storage)); return
+        if path == "/propagation/topology/conclusions":
+            kind = params.get("kind", [None])[0] or None
+            query = params.get("q", [None])[0] or None
+            conclusion_ref = params.get("ref", [None])[0] or None
+            try:
+                payload = topology_conclusions(self.storage, kind=kind, query=query, conclusion_ref=conclusion_ref)
+            except ValueError:
+                self._send_json({"error": "invalid conclusion kind"}, HTTPStatus.BAD_REQUEST); return
+            self._send_json(payload); return
         if path.startswith("/propagation/topology/explain/"):
             evidence_ref = unquote(path.split("/propagation/topology/explain/", 1)[1])
             explanation = explain_topology_ref(self.storage, evidence_ref)
