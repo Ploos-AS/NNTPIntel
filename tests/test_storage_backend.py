@@ -85,18 +85,19 @@ class FakeResult:
 
 def test_postgres_migrations_are_idempotent():
     conn = FakeConnection()
-    assert apply_postgres_migrations(conn) == 4
+    assert apply_postgres_migrations(conn) == 5
     expected = [
         (1, "bootstrap schema metadata"),
         (2, "production core schema and observation partitions"),
         (3, "server availability and latency rollups"),
         (4, "allow monthly server observation rollups"),
+        (5, "server TLS and capability rollups"),
     ]
     assert conn.inserted == expected
     assert conn.committed is True
 
     conn.committed = False
-    assert apply_postgres_migrations(conn) == 4
+    assert apply_postgres_migrations(conn) == 5
     assert conn.inserted == expected
     assert conn.committed is True
 
@@ -142,3 +143,15 @@ def test_monthly_rollup_support_is_an_upgrade_migration():
     assert migration.name == "allow monthly server observation rollups"
     assert "DROP CONSTRAINT IF EXISTS server_observation_rollups_resolution_check" in sql
     assert "CHECK (resolution IN ('hour', 'day', 'month'))" in sql
+
+
+def test_protocol_rollup_schema_is_version_five():
+    migration = POSTGRES_MIGRATIONS[4]
+    sql = " ".join(migration.sql.split())
+    assert migration.version == 5
+    assert "CREATE TABLE IF NOT EXISTS server_protocol_rollups" in sql
+    assert "CREATE TABLE IF NOT EXISTS server_protocol_value_rollups" in sql
+    assert "tls_protocol" in sql
+    assert "tls_cipher" in sql
+    assert "capability" in sql
+    assert "resolution IN ('hour', 'day', 'month')" in sql
