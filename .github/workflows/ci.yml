@@ -53,3 +53,5 @@ jobs:
         run: python -m pip install -e '.[postgres]'
       - name: Qualify PostgreSQL migrations and partitioned schema
         run: python tools/qualify_postgres.py
+      - name: Qualify group and hierarchy rollups
+        run: python tools/qualify_group_rollups.py
