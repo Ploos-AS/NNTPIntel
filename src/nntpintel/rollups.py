@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 
-_ALLOWED_RESOLUTIONS = {"hour", "day"}
+_ALLOWED_RESOLUTIONS = {"hour", "day", "month"}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -23,7 +23,19 @@ def _utc(value: datetime.datetime) -> datetime.datetime:
 def _bucket_floor(value: datetime.datetime, resolution: str) -> datetime.datetime:
     if resolution == "hour":
         return value.replace(minute=0, second=0, microsecond=0)
-    return value.replace(hour=0, minute=0, second=0, microsecond=0)
+    if resolution == "day":
+        return value.replace(hour=0, minute=0, second=0, microsecond=0)
+    return value.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _next_bucket(value: datetime.datetime, resolution: str) -> datetime.datetime:
+    if resolution == "hour":
+        return value + datetime.timedelta(hours=1)
+    if resolution == "day":
+        return value + datetime.timedelta(days=1)
+    if value.month == 12:
+        return value.replace(year=value.year + 1, month=1)
+    return value.replace(month=value.month + 1)
 
 
 def _bucket_delete_bounds(
@@ -34,8 +46,7 @@ def _bucket_delete_bounds(
     bucket_start = _bucket_floor(start, resolution)
     last_included = end - datetime.timedelta(microseconds=1)
     last_bucket = _bucket_floor(last_included, resolution)
-    step = datetime.timedelta(hours=1) if resolution == "hour" else datetime.timedelta(days=1)
-    return bucket_start, last_bucket + step
+    return bucket_start, _next_bucket(last_bucket, resolution)
 
 
 def rebuild_server_observation_rollups(
@@ -53,7 +64,7 @@ def rebuild_server_observation_rollups(
     """
 
     if resolution not in _ALLOWED_RESOLUTIONS:
-        raise ValueError("resolution must be 'hour' or 'day'")
+        raise ValueError("resolution must be 'hour', 'day', or 'month'")
 
     start_utc = _utc(start)
     end_utc = _utc(end)
@@ -128,8 +139,8 @@ def rebuild_server_observation_rollup_chain(
     *,
     start: datetime.datetime,
     end: datetime.datetime,
-) -> tuple[RollupResult, RollupResult]:
-    """Rebuild hourly and daily server observation rollups for one bounded window."""
+) -> tuple[RollupResult, RollupResult, RollupResult]:
+    """Rebuild hourly, daily, and monthly server rollups for one bounded window."""
 
     hourly = rebuild_server_observation_rollups(
         conn,
@@ -143,4 +154,10 @@ def rebuild_server_observation_rollup_chain(
         start=start,
         end=end,
     )
-    return hourly, daily
+    monthly = rebuild_server_observation_rollups(
+        conn,
+        resolution="month",
+        start=start,
+        end=end,
+    )
+    return hourly, daily, monthly
