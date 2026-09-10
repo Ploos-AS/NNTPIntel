@@ -62,7 +62,7 @@ def main() -> None:
         conn.execute(
             """
             INSERT INTO propagation_incidents(
-                server_id, kind, severity, started_at, updated_at, resolved_at, window
+                server_id, kind, severity, started_at, updated_at, resolved_at, "window"
             ) VALUES (
                 %s, 'delay_spike', 'warning',
                 '2026-09-10 10:20:00+00', '2026-09-10 10:25:00+00',
