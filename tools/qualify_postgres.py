@@ -39,8 +39,8 @@ def _assert_default_partition(conn, table: str) -> None:
 def main() -> None:
     url = os.environ["NNTPINTEL_DATABASE_URL"]
     storage = PostgresStorage(url)
-    assert storage.schema_version() == 3
-    assert storage.migrate() == 3
+    assert storage.schema_version() == 4
+    assert storage.migrate() == 4
 
     with storage.connect() as conn:
         versions = [
@@ -49,7 +49,19 @@ def main() -> None:
                 "SELECT version FROM nntpintel_schema_version ORDER BY version"
             ).fetchall()
         ]
-        assert versions == [1, 2, 3], versions
+        assert versions == [1, 2, 3, 4], versions
+
+        constraint = conn.execute(
+            """
+            SELECT pg_get_constraintdef(c.oid) AS definition
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            WHERE t.relname = 'server_observation_rollups'
+              AND c.conname = 'server_observation_rollups_resolution_check'
+            """
+        ).fetchone()
+        assert constraint is not None
+        assert "month" in constraint["definition"], constraint
 
         for table in (
             "observations",
