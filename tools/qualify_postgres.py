@@ -41,8 +41,8 @@ def _assert_default_partition(conn, table: str) -> None:
 def main() -> None:
     url = os.environ["NNTPINTEL_DATABASE_URL"]
     storage = PostgresStorage(url)
-    assert storage.schema_version() == 5
-    assert storage.migrate() == 5
+    assert storage.schema_version() == 6
+    assert storage.migrate() == 6
 
     with storage.connect() as conn:
         versions = [
@@ -51,7 +51,7 @@ def main() -> None:
                 "SELECT version FROM nntpintel_schema_version ORDER BY version"
             ).fetchall()
         ]
-        assert versions == [1, 2, 3, 4, 5], versions
+        assert versions == [1, 2, 3, 4, 5, 6], versions
 
         constraint = conn.execute(
             """
@@ -245,7 +245,7 @@ def main() -> None:
         conn.rollback()
 
     print(
-        "PostgreSQL qualification PASS: migrations, partitioning, hourly/daily/monthly "
+        "PostgreSQL qualification PASS: schema v6, partitioning, hourly/daily/monthly "
         "availability, latency, TLS and normalized capability rollups"
     )
 
