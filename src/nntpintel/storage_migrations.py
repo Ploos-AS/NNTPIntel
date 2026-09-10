@@ -214,6 +214,45 @@ POSTGRES_MIGRATIONS = (
             ON server_protocol_value_rollups(kind, resolution, bucket_start DESC);
         """,
     ),
+    PostgresMigration(
+        6,
+        "server group hierarchy and event rollups",
+        """
+        CREATE TABLE IF NOT EXISTS server_group_rollups (
+            server_id BIGINT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+            resolution TEXT NOT NULL CHECK (resolution IN ('hour', 'day', 'month')),
+            bucket_start TIMESTAMPTZ NOT NULL,
+            inventory_count BIGINT NOT NULL,
+            snapshot_count BIGINT NOT NULL,
+            observed_group_count BIGINT NOT NULL,
+            observed_hierarchy_count BIGINT NOT NULL,
+            event_count BIGINT NOT NULL,
+            generated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(server_id, resolution, bucket_start),
+            CHECK (inventory_count >= 0),
+            CHECK (snapshot_count >= 0),
+            CHECK (observed_group_count >= 0),
+            CHECK (observed_hierarchy_count >= 0),
+            CHECK (event_count >= 0)
+        );
+
+        CREATE TABLE IF NOT EXISTS server_group_value_rollups (
+            server_id BIGINT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+            resolution TEXT NOT NULL CHECK (resolution IN ('hour', 'day', 'month')),
+            bucket_start TIMESTAMPTZ NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('posting_status', 'event_type')),
+            value TEXT NOT NULL,
+            occurrence_count BIGINT NOT NULL CHECK (occurrence_count > 0),
+            generated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(server_id, resolution, bucket_start, kind, value)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_server_group_rollups_resolution_time
+            ON server_group_rollups(resolution, bucket_start DESC);
+        CREATE INDEX IF NOT EXISTS idx_server_group_values_kind_time
+            ON server_group_value_rollups(kind, resolution, bucket_start DESC);
+        """,
+    ),
 )
 
 
