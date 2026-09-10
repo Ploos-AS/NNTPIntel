@@ -9,7 +9,7 @@ from nntpintel.storage_backend import PostgresStorage
 
 def main() -> None:
     storage = PostgresStorage(os.environ["NNTPINTEL_DATABASE_URL"])
-    assert storage.schema_version() == 6
+    assert storage.schema_version() == 7
 
     with storage.connect() as conn:
         server_id = conn.execute(
