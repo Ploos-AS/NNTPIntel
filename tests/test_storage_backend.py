@@ -85,19 +85,20 @@ class FakeResult:
 
 def test_postgres_migrations_are_idempotent():
     conn = FakeConnection()
-    assert apply_postgres_migrations(conn) == 5
+    assert apply_postgres_migrations(conn) == 6
     expected = [
         (1, "bootstrap schema metadata"),
         (2, "production core schema and observation partitions"),
         (3, "server availability and latency rollups"),
         (4, "allow monthly server observation rollups"),
         (5, "server TLS and capability rollups"),
+        (6, "server group hierarchy and event rollups"),
     ]
     assert conn.inserted == expected
     assert conn.committed is True
 
     conn.committed = False
-    assert apply_postgres_migrations(conn) == 5
+    assert apply_postgres_migrations(conn) == 6
     assert conn.inserted == expected
     assert conn.committed is True
 
@@ -155,3 +156,17 @@ def test_protocol_rollup_schema_is_version_five():
     assert "tls_cipher" in sql
     assert "capability" in sql
     assert "resolution IN ('hour', 'day', 'month')" in sql
+
+
+def test_group_hierarchy_rollup_schema_is_version_six():
+    migration = POSTGRES_MIGRATIONS[5]
+    sql = " ".join(migration.sql.split())
+    assert migration.version == 6
+    assert migration.name == "server group hierarchy and event rollups"
+    assert "CREATE TABLE IF NOT EXISTS server_group_rollups" in sql
+    assert "CREATE TABLE IF NOT EXISTS server_group_value_rollups" in sql
+    assert "inventory_count" in sql
+    assert "observed_group_count" in sql
+    assert "observed_hierarchy_count" in sql
+    assert "posting_status" in sql
+    assert "event_type" in sql
