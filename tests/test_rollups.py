@@ -32,7 +32,7 @@ def test_rollup_rejects_invalid_resolution_and_bounds():
 
     with pytest.raises(ValueError, match="resolution"):
         rebuild_server_observation_rollups(
-            conn, resolution="month", start=start, end=end
+            conn, resolution="year", start=start, end=end
         )
     with pytest.raises(ValueError, match="after start"):
         rebuild_server_observation_rollups(
@@ -74,3 +74,24 @@ def test_rollup_rebuild_is_bounded_and_idempotent_by_replace():
     assert "o.observed_at < %s" in insert_sql
     assert "GROUP BY server_id, bucket_start" in insert_sql
     assert insert_params == ("hour", start, end, "hour")
+
+
+def test_monthly_rollup_delete_bounds_cover_touched_calendar_months():
+    conn = FakeConnection()
+    start = datetime(2026, 12, 20, 12, 0, tzinfo=UTC)
+    end = datetime(2027, 1, 3, 12, 0, tzinfo=UTC)
+
+    result = rebuild_server_observation_rollups(
+        conn, resolution="month", start=start, end=end
+    )
+
+    assert result.resolution == "month"
+    delete_sql, delete_params = conn.calls[0]
+    assert delete_sql.startswith("DELETE FROM server_observation_rollups")
+    assert delete_params == (
+        "month",
+        datetime(2026, 12, 1, tzinfo=UTC),
+        datetime(2027, 2, 1, tzinfo=UTC),
+    )
+    _, insert_params = conn.calls[1]
+    assert insert_params == ("month", start, end, "month")
