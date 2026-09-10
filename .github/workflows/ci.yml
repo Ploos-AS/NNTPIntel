@@ -55,3 +55,5 @@ jobs:
         run: python tools/qualify_postgres.py
       - name: Qualify group and hierarchy rollups
         run: python tools/qualify_group_rollups.py
+      - name: Qualify propagation rollups
+        run: python tools/qualify_propagation_rollups.py
