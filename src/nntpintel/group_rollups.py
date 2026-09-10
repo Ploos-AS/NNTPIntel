@@ -69,15 +69,17 @@ def rebuild_server_group_rollups(
                 COUNT(DISTINCT hierarchy_id) AS observed_hierarchy_count
             FROM snapshot_scoped
             GROUP BY server_id, bucket_start
-        ), event_summary AS (
+        ), event_scoped AS (
             SELECT
                 e.server_id,
-                date_trunc(%s, ge.observed_at) AS bucket_start,
-                COUNT(*) AS event_count
+                date_trunc(%s, ge.observed_at) AS bucket_start
             FROM group_events ge
             JOIN endpoints e ON e.id = ge.endpoint_id
             WHERE ge.observed_at >= %s AND ge.observed_at < %s
-            GROUP BY e.server_id, date_trunc(%s, ge.observed_at)
+        ), event_summary AS (
+            SELECT server_id, bucket_start, COUNT(*) AS event_count
+            FROM event_scoped
+            GROUP BY server_id, bucket_start
         ), buckets AS (
             SELECT server_id, bucket_start FROM snapshot_summary
             UNION
@@ -111,7 +113,6 @@ def rebuild_server_group_rollups(
             resolution,
             start_utc,
             end_utc,
-            resolution,
             resolution,
         ),
     )
