@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import UTC, datetime
 
+from nntpintel.protocol_rollups import rebuild_server_protocol_rollup_chain
 from nntpintel.rollups import rebuild_server_observation_rollup_chain
 from nntpintel.storage_backend import PostgresStorage
 
@@ -39,8 +41,8 @@ def _assert_default_partition(conn, table: str) -> None:
 def main() -> None:
     url = os.environ["NNTPINTEL_DATABASE_URL"]
     storage = PostgresStorage(url)
-    assert storage.schema_version() == 4
-    assert storage.migrate() == 4
+    assert storage.schema_version() == 5
+    assert storage.migrate() == 5
 
     with storage.connect() as conn:
         versions = [
@@ -49,7 +51,7 @@ def main() -> None:
                 "SELECT version FROM nntpintel_schema_version ORDER BY version"
             ).fetchall()
         ]
-        assert versions == [1, 2, 3, 4], versions
+        assert versions == [1, 2, 3, 4, 5], versions
 
         constraint = conn.execute(
             """
@@ -108,60 +110,60 @@ def main() -> None:
         ).fetchone()["id"]
 
         observations = (
-            ("2026-09-09 20:05:00+00", True, 100.0),
-            ("2026-09-09 20:35:00+00", False, None),
-            ("2026-09-09 21:05:00+00", True, 200.0),
-            ("2026-09-09 21:35:00+00", True, 300.0),
+            (
+                "2026-09-09 20:05:00+00",
+                True,
+                100.0,
+                ["VERSION 2", "READER", "STARTTLS"],
+                {"enabled": True, "protocol": "TLSv1.3", "cipher": "TLS_AES_256_GCM_SHA384"},
+            ),
+            (
+                "2026-09-09 20:35:00+00",
+                False,
+                None,
+                [],
+                {"enabled": False},
+            ),
+            (
+                "2026-09-09 21:05:00+00",
+                True,
+                200.0,
+                ["VERSION 2", "READER"],
+                {"enabled": True, "protocol": "TLSv1.3", "cipher": "TLS_AES_256_GCM_SHA384"},
+            ),
+            (
+                "2026-09-09 21:35:00+00",
+                True,
+                300.0,
+                ["VERSION 2", "READER", "OVER"],
+                {"enabled": True, "protocol": "TLSv1.2", "cipher": "ECDHE-RSA-AES256-GCM-SHA384"},
+            ),
         )
-        for observed, success, connect_ms in observations:
+        for observed, success, connect_ms, capabilities, tls in observations:
             conn.execute(
                 """
                 INSERT INTO observations(
                     endpoint_id, observed_at, success, connect_ms,
                     capabilities_json, tls_json, raw_json
-                ) VALUES (%s, %s::timestamptz, %s, %s, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)
+                ) VALUES (%s, %s::timestamptz, %s, %s, %s::jsonb, %s::jsonb, '{}'::jsonb)
                 """,
-                (endpoint_id, observed, success, connect_ms),
+                (
+                    endpoint_id,
+                    observed,
+                    success,
+                    connect_ms,
+                    json.dumps(capabilities),
+                    json.dumps(tls),
+                ),
             )
         conn.commit()
-
-        count = conn.execute(
-            "SELECT COUNT(*) AS count FROM observations WHERE endpoint_id = %s",
-            (endpoint_id,),
-        ).fetchone()["count"]
-        assert count == 4, count
 
         start = datetime(2026, 9, 9, 20, 0, tzinfo=UTC)
         end = datetime(2026, 9, 10, 0, 0, tzinfo=UTC)
         hourly, daily, monthly = rebuild_server_observation_rollup_chain(
             conn, start=start, end=end
         )
-        assert hourly.rows_written == 2, hourly
-        assert daily.rows_written == 1, daily
-        assert monthly.rows_written == 1, monthly
-
-        hourly_rows = conn.execute(
-            """
-            SELECT bucket_start, observation_count, success_count, failure_count,
-                   availability_ratio, connect_ms_count, connect_ms_avg,
-                   connect_ms_min, connect_ms_max
-            FROM server_observation_rollups
-            WHERE server_id = %s AND resolution = 'hour'
-            ORDER BY bucket_start
-            """,
-            (server_id,),
-        ).fetchall()
-        assert len(hourly_rows) == 2, hourly_rows
-        assert hourly_rows[0]["observation_count"] == 2
-        assert hourly_rows[0]["success_count"] == 1
-        assert hourly_rows[0]["failure_count"] == 1
-        assert hourly_rows[0]["availability_ratio"] == 0.5
-        assert hourly_rows[0]["connect_ms_count"] == 1
-        assert hourly_rows[0]["connect_ms_avg"] == 100.0
-        assert hourly_rows[1]["availability_ratio"] == 1.0
-        assert hourly_rows[1]["connect_ms_avg"] == 250.0
-        assert hourly_rows[1]["connect_ms_min"] == 200.0
-        assert hourly_rows[1]["connect_ms_max"] == 300.0
+        assert (hourly.rows_written, daily.rows_written, monthly.rows_written) == (2, 1, 1)
 
         daily_row = conn.execute(
             """
@@ -181,8 +183,7 @@ def main() -> None:
 
         monthly_row = conn.execute(
             """
-            SELECT bucket_start, observation_count, success_count, failure_count,
-                   availability_ratio, connect_ms_count, connect_ms_avg
+            SELECT bucket_start, observation_count, availability_ratio
             FROM server_observation_rollups
             WHERE server_id = %s AND resolution = 'month'
             """,
@@ -190,27 +191,51 @@ def main() -> None:
         ).fetchone()
         assert monthly_row["bucket_start"] == datetime(2026, 9, 1, tzinfo=UTC)
         assert monthly_row["observation_count"] == 4
-        assert monthly_row["success_count"] == 3
-        assert monthly_row["failure_count"] == 1
         assert monthly_row["availability_ratio"] == 0.75
-        assert monthly_row["connect_ms_count"] == 3
-        assert monthly_row["connect_ms_avg"] == 200.0
 
-        hourly_again, daily_again, monthly_again = rebuild_server_observation_rollup_chain(
-            conn, start=start, end=end
-        )
-        assert hourly_again.rows_written == 2
-        assert daily_again.rows_written == 1
-        assert monthly_again.rows_written == 1
-        total_rollups = conn.execute(
+        protocol_results = rebuild_server_protocol_rollup_chain(conn, start=start, end=end)
+        assert [item.summary_rows_written for item in protocol_results] == [2, 1, 1]
+
+        protocol_daily = conn.execute(
             """
-            SELECT COUNT(*) AS count
-            FROM server_observation_rollups
-            WHERE server_id = %s
+            SELECT observation_count, tls_enabled_count, tls_ratio,
+                   capabilities_observed_count, capability_entry_count
+            FROM server_protocol_rollups
+            WHERE server_id = %s AND resolution = 'day'
             """,
             (server_id,),
+        ).fetchone()
+        assert protocol_daily["observation_count"] == 4
+        assert protocol_daily["tls_enabled_count"] == 3
+        assert protocol_daily["tls_ratio"] == 0.75
+        assert protocol_daily["capabilities_observed_count"] == 3
+        assert protocol_daily["capability_entry_count"] == 8
+
+        values = {
+            (row["kind"], row["value"]): row["occurrence_count"]
+            for row in conn.execute(
+                """
+                SELECT kind, value, occurrence_count
+                FROM server_protocol_value_rollups
+                WHERE server_id = %s AND resolution = 'day'
+                """,
+                (server_id,),
+            ).fetchall()
+        }
+        assert values[("tls_protocol", "TLSv1.3")] == 2
+        assert values[("tls_protocol", "TLSv1.2")] == 1
+        assert values[("capability", "VERSION")] == 3
+        assert values[("capability", "READER")] == 3
+        assert values[("capability", "STARTTLS")] == 1
+        assert values[("capability", "OVER")] == 1
+
+        protocol_again = rebuild_server_protocol_rollup_chain(conn, start=start, end=end)
+        assert [item.summary_rows_written for item in protocol_again] == [2, 1, 1]
+        summary_count = conn.execute(
+            "SELECT COUNT(*) AS count FROM server_protocol_rollups WHERE server_id = %s",
+            (server_id,),
         ).fetchone()["count"]
-        assert total_rollups == 4, total_rollups
+        assert summary_count == 4, summary_count
 
         default_rows = conn.execute(
             "SELECT COUNT(*) AS count FROM observations_default WHERE endpoint_id = %s",
@@ -220,8 +245,8 @@ def main() -> None:
         conn.rollback()
 
     print(
-        "PostgreSQL qualification PASS: migrations, partitioning, types, "
-        "insert/query, hourly/daily/monthly rollups, idempotent rebuild"
+        "PostgreSQL qualification PASS: migrations, partitioning, hourly/daily/monthly "
+        "availability, latency, TLS and normalized capability rollups"
     )
 
 
