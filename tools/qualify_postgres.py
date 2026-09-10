@@ -121,9 +121,12 @@ def main() -> None:
 
         start = datetime(2026, 9, 9, 20, 0, tzinfo=UTC)
         end = datetime(2026, 9, 10, 0, 0, tzinfo=UTC)
-        hourly, daily = rebuild_server_observation_rollup_chain(conn, start=start, end=end)
+        hourly, daily, monthly = rebuild_server_observation_rollup_chain(
+            conn, start=start, end=end
+        )
         assert hourly.rows_written == 2, hourly
         assert daily.rows_written == 1, daily
+        assert monthly.rows_written == 1, monthly
 
         hourly_rows = conn.execute(
             """
@@ -164,11 +167,29 @@ def main() -> None:
         assert daily_row["connect_ms_count"] == 3
         assert daily_row["connect_ms_avg"] == 200.0
 
-        hourly_again, daily_again = rebuild_server_observation_rollup_chain(
+        monthly_row = conn.execute(
+            """
+            SELECT bucket_start, observation_count, success_count, failure_count,
+                   availability_ratio, connect_ms_count, connect_ms_avg
+            FROM server_observation_rollups
+            WHERE server_id = %s AND resolution = 'month'
+            """,
+            (server_id,),
+        ).fetchone()
+        assert monthly_row["bucket_start"] == datetime(2026, 9, 1, tzinfo=UTC)
+        assert monthly_row["observation_count"] == 4
+        assert monthly_row["success_count"] == 3
+        assert monthly_row["failure_count"] == 1
+        assert monthly_row["availability_ratio"] == 0.75
+        assert monthly_row["connect_ms_count"] == 3
+        assert monthly_row["connect_ms_avg"] == 200.0
+
+        hourly_again, daily_again, monthly_again = rebuild_server_observation_rollup_chain(
             conn, start=start, end=end
         )
         assert hourly_again.rows_written == 2
         assert daily_again.rows_written == 1
+        assert monthly_again.rows_written == 1
         total_rollups = conn.execute(
             """
             SELECT COUNT(*) AS count
@@ -177,7 +198,7 @@ def main() -> None:
             """,
             (server_id,),
         ).fetchone()["count"]
-        assert total_rollups == 3, total_rollups
+        assert total_rollups == 4, total_rollups
 
         default_rows = conn.execute(
             "SELECT COUNT(*) AS count FROM observations_default WHERE endpoint_id = %s",
@@ -188,7 +209,7 @@ def main() -> None:
 
     print(
         "PostgreSQL qualification PASS: migrations, partitioning, types, "
-        "insert/query, hourly/daily rollups, idempotent rebuild"
+        "insert/query, hourly/daily/monthly rollups, idempotent rebuild"
     )
 
 
