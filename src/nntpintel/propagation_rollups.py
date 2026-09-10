@@ -65,11 +65,9 @@ def rebuild_propagation_rollups(
                 po.article_id,
                 po.observed_at,
                 po.response_code,
-                po.error,
-                pa.first_registered_at
+                po.error
             FROM propagation_observations po
             JOIN endpoints e ON e.id = po.endpoint_id
-            JOIN propagation_articles pa ON pa.id = po.article_id
             WHERE po.observed_at >= %s AND po.observed_at < %s
         ), classified AS (
             SELECT *,
@@ -79,12 +77,17 @@ def rebuild_propagation_rollups(
                     ELSE 'unknown'
                 END AS presence_state
             FROM scoped
+        ), first_present_all AS (
+            SELECT e.server_id, po.article_id, MIN(po.observed_at) AS first_seen_at,
+                   MIN(pa.first_registered_at) AS first_registered_at
+            FROM propagation_observations po
+            JOIN endpoints e ON e.id = po.endpoint_id
+            JOIN propagation_articles pa ON pa.id = po.article_id
+            WHERE po.response_code = 223 AND po.error IS NULL
+            GROUP BY e.server_id, po.article_id
         ), first_present AS (
-            SELECT server_id, article_id, MIN(observed_at) AS first_seen_at,
-                   MIN(first_registered_at) AS first_registered_at
-            FROM classified
-            WHERE presence_state = 'present'
-            GROUP BY server_id, article_id
+            SELECT * FROM first_present_all
+            WHERE first_seen_at >= %s AND first_seen_at < %s
         ), probe_summary AS (
             SELECT server_id, bucket_start,
                    COUNT(*) AS probe_count,
@@ -94,21 +97,25 @@ def rebuild_propagation_rollups(
                    COUNT(DISTINCT article_id) AS article_count
             FROM classified
             GROUP BY server_id, bucket_start
-        ), delay_summary AS (
+        ), delay_scoped AS (
             SELECT server_id, date_trunc(%s, first_seen_at) AS bucket_start,
-                   COUNT(*) AS delay_count,
-                   AVG(EXTRACT(EPOCH FROM (first_seen_at - first_registered_at)))::double precision AS delay_avg,
-                   MIN(EXTRACT(EPOCH FROM (first_seen_at - first_registered_at)))::double precision AS delay_min,
-                   MAX(EXTRACT(EPOCH FROM (first_seen_at - first_registered_at)))::double precision AS delay_max
+                   EXTRACT(EPOCH FROM (first_seen_at - first_registered_at))::double precision AS delay_seconds
             FROM first_present
-            GROUP BY server_id, date_trunc(%s, first_seen_at)
+        ), delay_summary AS (
+            SELECT server_id, bucket_start,
+                   COUNT(*) AS delay_count,
+                   AVG(delay_seconds)::double precision AS delay_avg,
+                   MIN(delay_seconds)::double precision AS delay_min,
+                   MAX(delay_seconds)::double precision AS delay_max
+            FROM delay_scoped
+            GROUP BY server_id, bucket_start
+        ), incident_scoped AS (
+            SELECT server_id, date_trunc(%s, started_at) AS bucket_start
+            FROM propagation_incidents
+            WHERE started_at >= %s AND started_at < %s
         ), incident_summary AS (
             SELECT server_id, bucket_start, COUNT(*) AS incident_count
-            FROM (
-                SELECT server_id, date_trunc(%s, started_at) AS bucket_start
-                FROM propagation_incidents
-                WHERE started_at >= %s AND started_at < %s
-            ) incident_scoped
+            FROM incident_scoped
             GROUP BY server_id, bucket_start
         ), buckets AS (
             SELECT server_id, bucket_start FROM probe_summary
@@ -140,9 +147,15 @@ def rebuild_propagation_rollups(
         ORDER BY b.server_id, b.bucket_start
         """,
         (
-            resolution, start_utc, end_utc,
-            resolution, resolution,
-            resolution, start_utc, end_utc,
+            resolution,
+            start_utc,
+            end_utc,
+            start_utc,
+            end_utc,
+            resolution,
+            resolution,
+            start_utc,
+            end_utc,
             resolution,
         ),
     )
