@@ -183,6 +183,17 @@ POSTGRES_MIGRATIONS = (
             ON server_observation_rollups(server_id, bucket_start DESC);
         """,
     ),
+    PostgresMigration(
+        4,
+        "allow monthly server observation rollups",
+        """
+        ALTER TABLE server_observation_rollups
+            DROP CONSTRAINT IF EXISTS server_observation_rollups_resolution_check;
+        ALTER TABLE server_observation_rollups
+            ADD CONSTRAINT server_observation_rollups_resolution_check
+            CHECK (resolution IN ('hour', 'day', 'month'));
+        """,
+    ),
 )
 
 
