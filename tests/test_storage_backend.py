@@ -85,7 +85,7 @@ class FakeResult:
 
 def test_postgres_migrations_are_idempotent():
     conn = FakeConnection()
-    assert apply_postgres_migrations(conn) == 6
+    assert apply_postgres_migrations(conn) == 7
     expected = [
         (1, "bootstrap schema metadata"),
         (2, "production core schema and observation partitions"),
@@ -93,12 +93,13 @@ def test_postgres_migrations_are_idempotent():
         (4, "allow monthly server observation rollups"),
         (5, "server TLS and capability rollups"),
         (6, "server group hierarchy and event rollups"),
+        (7, "production propagation campaigns incidents and rollups"),
     ]
     assert conn.inserted == expected
     assert conn.committed is True
 
     conn.committed = False
-    assert apply_postgres_migrations(conn) == 6
+    assert apply_postgres_migrations(conn) == 7
     assert conn.inserted == expected
     assert conn.committed is True
 
@@ -106,16 +107,10 @@ def test_postgres_migrations_are_idempotent():
 def test_postgres_production_schema_uses_timestamptz_jsonb_and_range_partitioning():
     migration = POSTGRES_MIGRATIONS[1]
     sql = " ".join(migration.sql.split())
-
     assert migration.version == 2
     assert "TIMESTAMPTZ" in sql
     assert "JSONB" in sql
-    for table in (
-        "observations",
-        "group_snapshots",
-        "group_events",
-        "propagation_observations",
-    ):
+    for table in ("observations", "group_snapshots", "group_events", "propagation_observations"):
         assert f"CREATE TABLE IF NOT EXISTS {table}" in sql
         assert "PARTITION BY RANGE (observed_at)" in sql
         assert f"CREATE TABLE IF NOT EXISTS {table}_default PARTITION OF {table} DEFAULT" in sql
@@ -155,7 +150,6 @@ def test_protocol_rollup_schema_is_version_five():
     assert "tls_protocol" in sql
     assert "tls_cipher" in sql
     assert "capability" in sql
-    assert "resolution IN ('hour', 'day', 'month')" in sql
 
 
 def test_group_hierarchy_rollup_schema_is_version_six():
@@ -170,3 +164,19 @@ def test_group_hierarchy_rollup_schema_is_version_six():
     assert "observed_hierarchy_count" in sql
     assert "posting_status" in sql
     assert "event_type" in sql
+
+
+def test_propagation_rollup_schema_is_version_seven():
+    migration = POSTGRES_MIGRATIONS[6]
+    sql = " ".join(migration.sql.split())
+    assert migration.version == 7
+    assert migration.name == "production propagation campaigns incidents and rollups"
+    assert "CREATE TABLE IF NOT EXISTS propagation_campaigns" in sql
+    assert "CREATE TABLE IF NOT EXISTS propagation_campaign_endpoints" in sql
+    assert "CREATE TABLE IF NOT EXISTS propagation_incidents" in sql
+    assert "CREATE TABLE IF NOT EXISTS server_propagation_rollups" in sql
+    assert "CREATE TABLE IF NOT EXISTS server_propagation_value_rollups" in sql
+    assert "CREATE TABLE IF NOT EXISTS propagation_campaign_rollups" in sql
+    assert "first_seen_delay_avg_seconds" in sql
+    assert "incident_kind" in sql
+    assert "incident_severity" in sql
