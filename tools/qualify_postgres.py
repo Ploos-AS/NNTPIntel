@@ -41,8 +41,8 @@ def _assert_default_partition(conn, table: str) -> None:
 def main() -> None:
     url = os.environ["NNTPINTEL_DATABASE_URL"]
     storage = PostgresStorage(url)
-    assert storage.schema_version() == 6
-    assert storage.migrate() == 6
+    assert storage.schema_version() == 7
+    assert storage.migrate() == 7
 
     with storage.connect() as conn:
         versions = [
@@ -51,7 +51,7 @@ def main() -> None:
                 "SELECT version FROM nntpintel_schema_version ORDER BY version"
             ).fetchall()
         ]
-        assert versions == [1, 2, 3, 4, 5, 6], versions
+        assert versions == [1, 2, 3, 4, 5, 6, 7], versions
 
         constraint = conn.execute(
             """
@@ -110,34 +110,10 @@ def main() -> None:
         ).fetchone()["id"]
 
         observations = (
-            (
-                "2026-09-09 20:05:00+00",
-                True,
-                100.0,
-                ["VERSION 2", "READER", "STARTTLS"],
-                {"enabled": True, "protocol": "TLSv1.3", "cipher": "TLS_AES_256_GCM_SHA384"},
-            ),
-            (
-                "2026-09-09 20:35:00+00",
-                False,
-                None,
-                [],
-                {"enabled": False},
-            ),
-            (
-                "2026-09-09 21:05:00+00",
-                True,
-                200.0,
-                ["VERSION 2", "READER"],
-                {"enabled": True, "protocol": "TLSv1.3", "cipher": "TLS_AES_256_GCM_SHA384"},
-            ),
-            (
-                "2026-09-09 21:35:00+00",
-                True,
-                300.0,
-                ["VERSION 2", "READER", "OVER"],
-                {"enabled": True, "protocol": "TLSv1.2", "cipher": "ECDHE-RSA-AES256-GCM-SHA384"},
-            ),
+            ("2026-09-09 20:05:00+00", True, 100.0, ["VERSION 2", "READER", "STARTTLS"], {"enabled": True, "protocol": "TLSv1.3", "cipher": "TLS_AES_256_GCM_SHA384"}),
+            ("2026-09-09 20:35:00+00", False, None, [], {"enabled": False}),
+            ("2026-09-09 21:05:00+00", True, 200.0, ["VERSION 2", "READER"], {"enabled": True, "protocol": "TLSv1.3", "cipher": "TLS_AES_256_GCM_SHA384"}),
+            ("2026-09-09 21:35:00+00", True, 300.0, ["VERSION 2", "READER", "OVER"], {"enabled": True, "protocol": "TLSv1.2", "cipher": "ECDHE-RSA-AES256-GCM-SHA384"}),
         )
         for observed, success, connect_ms, capabilities, tls in observations:
             conn.execute(
@@ -147,22 +123,13 @@ def main() -> None:
                     capabilities_json, tls_json, raw_json
                 ) VALUES (%s, %s::timestamptz, %s, %s, %s::jsonb, %s::jsonb, '{}'::jsonb)
                 """,
-                (
-                    endpoint_id,
-                    observed,
-                    success,
-                    connect_ms,
-                    json.dumps(capabilities),
-                    json.dumps(tls),
-                ),
+                (endpoint_id, observed, success, connect_ms, json.dumps(capabilities), json.dumps(tls)),
             )
         conn.commit()
 
         start = datetime(2026, 9, 9, 20, 0, tzinfo=UTC)
         end = datetime(2026, 9, 10, 0, 0, tzinfo=UTC)
-        hourly, daily, monthly = rebuild_server_observation_rollup_chain(
-            conn, start=start, end=end
-        )
+        hourly, daily, monthly = rebuild_server_observation_rollup_chain(conn, start=start, end=end)
         assert (hourly.rows_written, daily.rows_written, monthly.rows_written) == (2, 1, 1)
 
         daily_row = conn.execute(
@@ -245,7 +212,7 @@ def main() -> None:
         conn.rollback()
 
     print(
-        "PostgreSQL qualification PASS: schema v6, partitioning, hourly/daily/monthly "
+        "PostgreSQL qualification PASS: schema v7, partitioning, hourly/daily/monthly "
         "availability, latency, TLS and normalized capability rollups"
     )
 
