@@ -41,22 +41,97 @@ def retention_cutoff(now: datetime.datetime, policy: RetentionPolicy) -> datetim
     return _utc(now) - datetime.timedelta(days=policy.raw_days)
 
 
+def _has_missing_observation_rollups(conn, *, cutoff: datetime.datetime) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM observations o
+        JOIN endpoints e ON e.id = o.endpoint_id
+        WHERE o.observed_at < %s
+          AND (
+            NOT EXISTS (
+                SELECT 1 FROM server_observation_rollups r
+                WHERE r.server_id = e.server_id
+                  AND r.resolution = 'day'
+                  AND r.bucket_start = date_trunc('day', o.observed_at)
+            )
+            OR NOT EXISTS (
+                SELECT 1 FROM server_protocol_rollups r
+                WHERE r.server_id = e.server_id
+                  AND r.resolution = 'day'
+                  AND r.bucket_start = date_trunc('day', o.observed_at)
+            )
+          )
+        LIMIT 1
+        """,
+        (cutoff,),
+    ).fetchone()
+    return row is not None
+
+
+def _has_missing_group_rollups(conn, *, cutoff: datetime.datetime) -> bool:
+    row = conn.execute(
+        """
+        WITH raw_group_days AS (
+            SELECT DISTINCT e.server_id, date_trunc('day', s.observed_at) AS bucket_start
+            FROM group_snapshots s
+            JOIN endpoints e ON e.id = s.endpoint_id
+            WHERE s.observed_at < %s
+            UNION
+            SELECT DISTINCT e.server_id, date_trunc('day', g.observed_at) AS bucket_start
+            FROM group_events g
+            JOIN endpoints e ON e.id = g.endpoint_id
+            WHERE g.observed_at < %s
+        )
+        SELECT 1
+        FROM raw_group_days d
+        WHERE NOT EXISTS (
+            SELECT 1 FROM server_group_rollups r
+            WHERE r.server_id = d.server_id
+              AND r.resolution = 'day'
+              AND r.bucket_start = d.bucket_start
+        )
+        LIMIT 1
+        """,
+        (cutoff, cutoff),
+    ).fetchone()
+    return row is not None
+
+
+def _has_missing_propagation_rollups(conn, *, cutoff: datetime.datetime) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM propagation_observations p
+        JOIN endpoints e ON e.id = p.endpoint_id
+        WHERE p.observed_at < %s
+          AND NOT EXISTS (
+            SELECT 1 FROM server_propagation_rollups r
+            WHERE r.server_id = e.server_id
+              AND r.resolution = 'day'
+              AND r.bucket_start = date_trunc('day', p.observed_at)
+          )
+        LIMIT 1
+        """,
+        (cutoff,),
+    ).fetchone()
+    return row is not None
+
+
 def _rollup_coverage(conn, *, cutoff: datetime.datetime) -> tuple[bool, tuple[str, ...]]:
-    required = {
-        "server_observation_rollups": "server availability/latency",
-        "server_protocol_rollups": "TLS/capabilities",
-        "server_group_rollups": "groups/hierarchies",
-        "server_propagation_rollups": "propagation",
-        "topology_rollups": "topology/evidence",
-    }
+    """Require daily rollups for every raw server/day eligible for retention.
+
+    Coverage is intentionally domain-specific. Topology rollups are not a
+    prerequisite because none of the raw tables pruned here are topology data.
+    """
+
     missing: list[str] = []
-    for table, label in required.items():
-        row = conn.execute(
-            f"SELECT MAX(bucket_start) FROM {table} WHERE resolution = 'day'"
-        ).fetchone()
-        latest = row[0] if row else None
-        if latest is None or _utc(latest) < cutoff.replace(hour=0, minute=0, second=0, microsecond=0):
-            missing.append(label)
+    if _has_missing_observation_rollups(conn, cutoff=cutoff):
+        missing.append("server availability/latency + TLS/capabilities")
+    if _has_missing_group_rollups(conn, cutoff=cutoff):
+        missing.append("groups/hierarchies")
+    if _has_missing_propagation_rollups(conn, cutoff=cutoff):
+        missing.append("propagation")
     return not missing, tuple(missing)
 
 
@@ -79,7 +154,7 @@ def prune_raw_batches(
     policy: RetentionPolicy,
     batch_size: int = 10_000,
 ) -> dict[str, int]:
-    """Delete old raw rows only after daily rollup coverage passes.
+    """Delete old raw rows only after per-domain daily rollup coverage passes.
 
     Deletion is deliberately bounded and excludes derived rollups, topology
     evidence snapshots, incidents, campaigns and normalized entity tables.
