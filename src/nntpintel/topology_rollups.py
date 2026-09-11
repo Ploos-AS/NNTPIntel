@@ -68,7 +68,7 @@ def rebuild_topology_rollups(
             SELECT date_trunc(%s, started_at) AS bucket_start
             FROM propagation_incidents
             WHERE started_at >= %s AND started_at < %s
-              AND kind LIKE 'topology\_%' ESCAPE '\\'
+              AND substring(kind FROM 1 FOR 9) = 'topology_'
         ), incident_summary AS (
             SELECT bucket_start, COUNT(*) AS incident_started_count
             FROM incident_scoped
@@ -140,14 +140,14 @@ def rebuild_topology_rollups(
                    lower(trim(kind))
             FROM propagation_incidents
             WHERE started_at >= %s AND started_at < %s
-              AND kind LIKE 'topology\_%' ESCAPE '\\'
+              AND substring(kind FROM 1 FOR 9) = 'topology_'
             UNION ALL
             SELECT date_trunc(%s, started_at),
                    'incident_severity'::text,
                    lower(trim(severity))
             FROM propagation_incidents
             WHERE started_at >= %s AND started_at < %s
-              AND kind LIKE 'topology\_%' ESCAPE '\\'
+              AND substring(kind FROM 1 FOR 9) = 'topology_'
         )
         INSERT INTO topology_value_rollups(
             resolution, bucket_start, kind, value, occurrence_count, generated_at
