@@ -220,7 +220,17 @@ def main() -> None:
             (endpoint_id,),
         ).fetchone()["count"]
         assert default_rows == 4, default_rows
-        conn.rollback()
+
+        # This qualification shares the CI database with later live checks. Remove
+        # every fixture row before returning so partition lifecycle qualification
+        # observes a clean DEFAULT partition. Deleting the server cascades through
+        # endpoints, raw observations and server-scoped rollups.
+        conn.execute("DELETE FROM servers WHERE id = %s", (server_id,))
+        conn.commit()
+        remaining = conn.execute(
+            "SELECT COUNT(*) AS count FROM observations_default"
+        ).fetchone()["count"]
+        assert remaining == 0, remaining
 
     print(
         "PostgreSQL qualification PASS: schema v8, partitioning, hourly/daily/monthly "
