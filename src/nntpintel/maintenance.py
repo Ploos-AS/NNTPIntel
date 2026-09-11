@@ -52,7 +52,7 @@ def _rollup_coverage(conn, *, cutoff: datetime.datetime) -> tuple[bool, tuple[st
     missing: list[str] = []
     for table, label in required.items():
         row = conn.execute(
-            f"SELECT MAX(bucket_start) FROM {table} WHERE resolution = 'day'"  # noqa: S608
+            f"SELECT MAX(bucket_start) FROM {table} WHERE resolution = 'day'"
         ).fetchone()
         latest = row[0] if row else None
         if latest is None or _utc(latest) < cutoff.replace(hour=0, minute=0, second=0, microsecond=0):
@@ -102,7 +102,7 @@ def prune_raw_batches(
                 ORDER BY observed_at
                 LIMIT %s
             )
-            """,  # noqa: S608
+            """,
             (plan.safe_cutoff, batch_size),
         )
         deleted[table] = int(result.rowcount or 0)
