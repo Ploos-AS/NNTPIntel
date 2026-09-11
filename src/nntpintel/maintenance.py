@@ -3,6 +3,8 @@ from __future__ import annotations
 import dataclasses
 import datetime
 
+from nntpintel.partition_lifecycle import PARTITIONED_TABLES, monthly_partition_name
+
 RAW_TABLES = (
     "observations",
     "group_snapshots",
@@ -35,6 +37,17 @@ def _utc(value: datetime.datetime) -> datetime.datetime:
     if value.tzinfo is None:
         raise ValueError("maintenance timestamps must be timezone-aware")
     return value.astimezone(datetime.UTC)
+
+
+def _month_start(value: datetime.datetime) -> datetime.datetime:
+    value = _utc(value)
+    return value.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _next_month(value: datetime.datetime) -> datetime.datetime:
+    if value.month == 12:
+        return value.replace(year=value.year + 1, month=1)
+    return value.replace(month=value.month + 1)
 
 
 def retention_cutoff(now: datetime.datetime, policy: RetentionPolicy) -> datetime.datetime:
@@ -183,3 +196,63 @@ def prune_raw_batches(
         deleted[table] = int(result.rowcount or 0)
     conn.commit()
     return deleted
+
+
+def retire_monthly_partition(
+    conn,
+    *,
+    table: str,
+    month: datetime.datetime,
+    now: datetime.datetime,
+    policy: RetentionPolicy,
+) -> str:
+    """Drop one old monthly raw partition only after retention safety checks.
+
+    The partition must be one of NNTPIntel's allowlisted raw parents, must be a
+    real non-DEFAULT child partition, and its complete month must end at or
+    before the conservative safe cutoff. Global per-domain rollup coverage is
+    checked immediately before DROP so missing historical rollups fail closed.
+    """
+
+    if table not in RAW_TABLES or table not in PARTITIONED_TABLES:
+        raise ValueError(f"unsupported retention table: {table}")
+
+    start = _month_start(month)
+    end = _next_month(start)
+    plan = plan_retention(conn, now=now, policy=policy)
+    if end > plan.safe_cutoff:
+        raise RuntimeError(
+            f"retention blocked: partition month ends at {end.isoformat()}, "
+            f"after safe cutoff {plan.safe_cutoff.isoformat()}"
+        )
+    if not plan.coverage_complete:
+        raise RuntimeError(
+            "retention blocked: missing rollup coverage: " + ", ".join(plan.missing_rollups)
+        )
+
+    name = monthly_partition_name(table, start)
+    default_name = f"{table}_default"
+    if name == default_name:
+        raise RuntimeError("retention blocked: DEFAULT partition can never be retired")
+
+    row = conn.execute(
+        """
+        SELECT pg_get_expr(child.relpartbound, child.oid) AS partition_bound
+        FROM pg_inherits i
+        JOIN pg_class parent ON parent.oid = i.inhparent
+        JOIN pg_class child ON child.oid = i.inhrelid
+        JOIN pg_namespace n ON n.oid = child.relnamespace
+        WHERE n.nspname = current_schema()
+          AND parent.relname = %s
+          AND child.relname = %s
+        """,
+        (table, name),
+    ).fetchone()
+    if row is None:
+        raise RuntimeError(f"retention blocked: {name} is not an attached partition of {table}")
+    if row["partition_bound"] == "DEFAULT":
+        raise RuntimeError("retention blocked: DEFAULT partition can never be retired")
+
+    conn.execute(f"DROP TABLE {name}")
+    conn.commit()
+    return name
