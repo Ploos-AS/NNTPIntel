@@ -4,7 +4,7 @@ import argparse
 import datetime
 import json
 import os
-from typing import Sequence
+from collections.abc import Sequence
 
 from nntpintel.maintenance import (
     RetentionPolicy,
@@ -34,10 +34,10 @@ def _policy(args: argparse.Namespace) -> RetentionPolicy:
 
 def _month(value: str) -> datetime.datetime:
     try:
-        parsed = datetime.datetime.strptime(value, "%Y-%m")
+        parsed = datetime.datetime.strptime(value, "%Y-%m").replace(tzinfo=datetime.UTC)
     except ValueError as exc:
         raise argparse.ArgumentTypeError("month must use YYYY-MM") from exc
-    return parsed.replace(tzinfo=datetime.UTC)
+    return parsed
 
 
 def build_parser() -> argparse.ArgumentParser:
