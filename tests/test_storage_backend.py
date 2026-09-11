@@ -85,7 +85,7 @@ class FakeResult:
 
 def test_postgres_migrations_are_idempotent():
     conn = FakeConnection()
-    assert apply_postgres_migrations(conn) == 7
+    assert apply_postgres_migrations(conn) == 8
     expected = [
         (1, "bootstrap schema metadata"),
         (2, "production core schema and observation partitions"),
@@ -94,12 +94,13 @@ def test_postgres_migrations_are_idempotent():
         (5, "server TLS and capability rollups"),
         (6, "server group hierarchy and event rollups"),
         (7, "production propagation campaigns incidents and rollups"),
+        (8, "topology evidence snapshots incidents and rollups"),
     ]
     assert conn.inserted == expected
     assert conn.committed is True
 
     conn.committed = False
-    assert apply_postgres_migrations(conn) == 7
+    assert apply_postgres_migrations(conn) == 8
     assert conn.inserted == expected
     assert conn.committed is True
 
@@ -178,5 +179,22 @@ def test_propagation_rollup_schema_is_version_seven():
     assert "CREATE TABLE IF NOT EXISTS server_propagation_value_rollups" in sql
     assert "CREATE TABLE IF NOT EXISTS propagation_campaign_rollups" in sql
     assert "first_seen_delay_avg_seconds" in sql
+    assert "incident_kind" in sql
+    assert "incident_severity" in sql
+
+
+def test_topology_evidence_rollup_schema_is_version_eight():
+    migration = POSTGRES_MIGRATIONS[7]
+    sql = " ".join(migration.sql.split())
+    assert migration.version == 8
+    assert migration.name == "topology evidence snapshots incidents and rollups"
+    assert "CREATE TABLE IF NOT EXISTS topology_evidence_snapshots" in sql
+    assert "bundle_json JSONB NOT NULL" in sql
+    assert "UNIQUE(conclusion_ref, fingerprint)" in sql
+    assert "CREATE TABLE IF NOT EXISTS topology_rollups" in sql
+    assert "CREATE TABLE IF NOT EXISTS topology_value_rollups" in sql
+    assert "conclusion_type" in sql
+    assert "evidence_level" in sql
+    assert "risk_level" in sql
     assert "incident_kind" in sql
     assert "incident_severity" in sql
