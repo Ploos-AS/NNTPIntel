@@ -41,8 +41,8 @@ def _assert_default_partition(conn, table: str) -> None:
 def main() -> None:
     url = os.environ["NNTPINTEL_DATABASE_URL"]
     storage = PostgresStorage(url)
-    assert storage.schema_version() == 7
-    assert storage.migrate() == 7
+    assert storage.schema_version() == 8
+    assert storage.migrate() == 8
 
     with storage.connect() as conn:
         versions = [
@@ -51,7 +51,7 @@ def main() -> None:
                 "SELECT version FROM nntpintel_schema_version ORDER BY version"
             ).fetchall()
         ]
-        assert versions == [1, 2, 3, 4, 5, 6, 7], versions
+        assert versions == [1, 2, 3, 4, 5, 6, 7, 8], versions
 
         constraint = conn.execute(
             """
@@ -95,6 +95,17 @@ def main() -> None:
             """
         ).fetchone()
         assert raw_json["data_type"] == "jsonb", raw_json
+
+        topology_bundle = conn.execute(
+            """
+            SELECT data_type
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'topology_evidence_snapshots'
+              AND column_name = 'bundle_json'
+            """
+        ).fetchone()
+        assert topology_bundle["data_type"] == "jsonb", topology_bundle
 
         server_id = conn.execute(
             "INSERT INTO servers(host) VALUES (%s) RETURNING id",
@@ -212,8 +223,8 @@ def main() -> None:
         conn.rollback()
 
     print(
-        "PostgreSQL qualification PASS: schema v7, partitioning, hourly/daily/monthly "
-        "availability, latency, TLS and normalized capability rollups"
+        "PostgreSQL qualification PASS: schema v8, partitioning, hourly/daily/monthly "
+        "availability, latency, TLS, capabilities and topology snapshot schema"
     )
 
 
