@@ -41,8 +41,8 @@ def _assert_default_partition(conn, table: str) -> None:
 def main() -> None:
     url = os.environ["NNTPINTEL_DATABASE_URL"]
     storage = PostgresStorage(url)
-    assert storage.schema_version() == 8
-    assert storage.migrate() == 8
+    assert storage.schema_version() == 9
+    assert storage.migrate() == 9
 
     with storage.connect() as conn:
         versions = [
@@ -51,7 +51,26 @@ def main() -> None:
                 "SELECT version FROM nntpintel_schema_version ORDER BY version"
             ).fetchall()
         ]
-        assert versions == [1, 2, 3, 4, 5, 6, 7, 8], versions
+        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9], versions
+
+        maintenance_table = conn.execute(
+            "SELECT to_regclass('maintenance_runs') AS name"
+        ).fetchone()
+        assert maintenance_table["name"] is not None
+        maintenance_index = conn.execute(
+            "SELECT to_regclass('idx_maintenance_runs_kind_time') AS name"
+        ).fetchone()
+        assert maintenance_index["name"] is not None
+        maintenance_detail = conn.execute(
+            """
+            SELECT data_type
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'maintenance_runs'
+              AND column_name = 'detail_json'
+            """
+        ).fetchone()
+        assert maintenance_detail["data_type"] == "jsonb", maintenance_detail
 
         constraint = conn.execute(
             """
@@ -121,10 +140,40 @@ def main() -> None:
         ).fetchone()["id"]
 
         observations = (
-            ("2026-09-09 20:05:00+00", True, 100.0, ["VERSION 2", "READER", "STARTTLS"], {"enabled": True, "protocol": "TLSv1.3", "cipher": "TLS_AES_256_GCM_SHA384"}),
+            (
+                "2026-09-09 20:05:00+00",
+                True,
+                100.0,
+                ["VERSION 2", "READER", "STARTTLS"],
+                {
+                    "enabled": True,
+                    "protocol": "TLSv1.3",
+                    "cipher": "TLS_AES_256_GCM_SHA384",
+                },
+            ),
             ("2026-09-09 20:35:00+00", False, None, [], {"enabled": False}),
-            ("2026-09-09 21:05:00+00", True, 200.0, ["VERSION 2", "READER"], {"enabled": True, "protocol": "TLSv1.3", "cipher": "TLS_AES_256_GCM_SHA384"}),
-            ("2026-09-09 21:35:00+00", True, 300.0, ["VERSION 2", "READER", "OVER"], {"enabled": True, "protocol": "TLSv1.2", "cipher": "ECDHE-RSA-AES256-GCM-SHA384"}),
+            (
+                "2026-09-09 21:05:00+00",
+                True,
+                200.0,
+                ["VERSION 2", "READER"],
+                {
+                    "enabled": True,
+                    "protocol": "TLSv1.3",
+                    "cipher": "TLS_AES_256_GCM_SHA384",
+                },
+            ),
+            (
+                "2026-09-09 21:35:00+00",
+                True,
+                300.0,
+                ["VERSION 2", "READER", "OVER"],
+                {
+                    "enabled": True,
+                    "protocol": "TLSv1.2",
+                    "cipher": "ECDHE-RSA-AES256-GCM-SHA384",
+                },
+            ),
         )
         for observed, success, connect_ms, capabilities, tls in observations:
             conn.execute(
@@ -134,13 +183,24 @@ def main() -> None:
                     capabilities_json, tls_json, raw_json
                 ) VALUES (%s, %s::timestamptz, %s, %s, %s::jsonb, %s::jsonb, '{}'::jsonb)
                 """,
-                (endpoint_id, observed, success, connect_ms, json.dumps(capabilities), json.dumps(tls)),
+                (
+                    endpoint_id,
+                    observed,
+                    success,
+                    connect_ms,
+                    json.dumps(capabilities),
+                    json.dumps(tls),
+                ),
             )
         conn.commit()
 
         start = datetime(2026, 9, 9, 20, 0, tzinfo=UTC)
         end = datetime(2026, 9, 10, 0, 0, tzinfo=UTC)
-        hourly, daily, monthly = rebuild_server_observation_rollup_chain(conn, start=start, end=end)
+        hourly, daily, monthly = rebuild_server_observation_rollup_chain(
+            conn,
+            start=start,
+            end=end,
+        )
         assert (hourly.rows_written, daily.rows_written, monthly.rows_written) == (2, 1, 1)
 
         daily_row = conn.execute(
@@ -233,8 +293,8 @@ def main() -> None:
         assert remaining == 0, remaining
 
     print(
-        "PostgreSQL qualification PASS: schema v8, partitioning, hourly/daily/monthly "
-        "availability, latency, TLS, capabilities and topology snapshot schema"
+        "PostgreSQL qualification PASS: schema v9, partitioning, maintenance history, "
+        "hourly/daily/monthly availability, latency, TLS, capabilities and topology schema"
     )
 
 
