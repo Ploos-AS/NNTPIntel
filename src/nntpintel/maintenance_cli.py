@@ -8,8 +8,10 @@ from collections.abc import Sequence
 
 from nntpintel.maintenance import (
     RetentionPolicy,
+    list_partition_retirement_candidates,
     plan_retention,
     prune_raw_batches,
+    retire_eligible_partitions,
     retire_monthly_partition,
 )
 from nntpintel.maintenance_status import finish_maintenance_run, start_maintenance_run
@@ -53,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     ensure = sub.add_parser("ensure-partitions", help="create current/future monthly partitions")
     ensure.add_argument("--months-ahead", type=int, default=2)
 
-    apply = sub.add_parser("apply", help="apply bounded raw retention; requires --yes")
+    apply = sub.add_parser("apply", help="apply fallback bounded raw retention; requires --yes")
     apply.add_argument("--batch-size", type=int, default=10_000)
     apply.add_argument("--yes", action="store_true", help="confirm destructive raw-row deletion")
 
@@ -61,6 +63,10 @@ def build_parser() -> argparse.ArgumentParser:
     retire.add_argument("table", choices=PARTITIONED_TABLES)
     retire.add_argument("month", type=_month, help="partition month as YYYY-MM")
     retire.add_argument("--yes", action="store_true", help="confirm destructive partition drop")
+
+    bulk = sub.add_parser("retire-eligible", help="drop all safe monthly partitions with coverage")
+    bulk.add_argument("--limit", type=int)
+    bulk.add_argument("--yes", action="store_true", help="confirm destructive partition drops")
     return parser
 
 
@@ -107,6 +113,20 @@ def _status(conn, storage: PostgresStorage) -> dict:
     }
 
 
+def _candidate_json(conn, *, now: datetime.datetime, policy: RetentionPolicy) -> list[dict]:
+    return [
+        {
+            "table": candidate.table,
+            "partition": candidate.partition,
+            "month": candidate.month.strftime("%Y-%m"),
+            "month_end": candidate.month_end.isoformat(),
+            "coverage_complete": candidate.coverage_complete,
+            "missing_rollups": list(candidate.missing_rollups),
+        }
+        for candidate in list_partition_retirement_candidates(conn, now=now, policy=policy)
+    ]
+
+
 def main(argv: Sequence[str] | None = None, *, now: datetime.datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
     current = (now or _utc_now()).astimezone(datetime.UTC)
@@ -124,6 +144,7 @@ def main(argv: Sequence[str] | None = None, *, now: datetime.datetime | None = N
             "safe_cutoff": plan.safe_cutoff.isoformat(),
             "coverage_complete": plan.coverage_complete,
             "missing_rollups": list(plan.missing_rollups),
+            "partition_candidates": _candidate_json(conn, now=current, policy=policy),
         }
 
         if args.command == "plan":
@@ -224,6 +245,57 @@ def main(argv: Sequence[str] | None = None, *, now: datetime.datetime | None = N
                 )
                 raise
             detail = {"partition": retired}
+            finish_maintenance_run(conn, run_id=run_id, status="success", detail=detail)
+            print(json.dumps(detail, sort_keys=True))
+            return 0
+
+        if args.command == "retire-eligible":
+            candidates = [
+                item
+                for item in plan_json["partition_candidates"]
+                if item["coverage_complete"]
+            ]
+            if args.limit is not None:
+                if args.limit < 1:
+                    raise SystemExit("--limit must be positive")
+                candidates = candidates[: args.limit]
+            if not args.yes:
+                print(
+                    json.dumps(
+                        {"dry_run": True, "eligible_partitions": candidates, "plan": plan_json},
+                        sort_keys=True,
+                    )
+                )
+                return 0
+            run_id = start_maintenance_run(
+                conn,
+                kind="partition_retirement_bulk",
+                detail={"eligible_partitions": candidates, "limit": args.limit},
+            )
+            try:
+                retired = retire_eligible_partitions(
+                    conn,
+                    now=current,
+                    policy=policy,
+                    limit=args.limit,
+                )
+            except RuntimeError as exc:
+                finish_maintenance_run(
+                    conn,
+                    run_id=run_id,
+                    status="blocked",
+                    detail={"reason": str(exc), "eligible_partitions": candidates},
+                )
+                raise SystemExit(str(exc)) from exc
+            except Exception as exc:
+                finish_maintenance_run(
+                    conn,
+                    run_id=run_id,
+                    status="failed",
+                    detail={"reason": str(exc), "eligible_partitions": candidates},
+                )
+                raise
+            detail = {"retired_partitions": list(retired), "count": len(retired)}
             finish_maintenance_run(conn, run_id=run_id, status="success", detail=detail)
             print(json.dumps(detail, sort_keys=True))
             return 0
