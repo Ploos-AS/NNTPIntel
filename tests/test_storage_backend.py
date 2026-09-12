@@ -85,7 +85,7 @@ class FakeResult:
 
 def test_postgres_migrations_are_idempotent():
     conn = FakeConnection()
-    assert apply_postgres_migrations(conn) == 8
+    assert apply_postgres_migrations(conn) == 9
     expected = [
         (1, "bootstrap schema metadata"),
         (2, "production core schema and observation partitions"),
@@ -95,12 +95,13 @@ def test_postgres_migrations_are_idempotent():
         (6, "server group hierarchy and event rollups"),
         (7, "production propagation campaigns incidents and rollups"),
         (8, "topology evidence snapshots incidents and rollups"),
+        (9, "maintenance run history"),
     ]
     assert conn.inserted == expected
     assert conn.committed is True
 
     conn.committed = False
-    assert apply_postgres_migrations(conn) == 8
+    assert apply_postgres_migrations(conn) == 9
     assert conn.inserted == expected
     assert conn.committed is True
 
@@ -198,3 +199,13 @@ def test_topology_evidence_rollup_schema_is_version_eight():
     assert "risk_level" in sql
     assert "incident_kind" in sql
     assert "incident_severity" in sql
+
+
+def test_maintenance_run_history_schema_is_version_nine():
+    migration = POSTGRES_MIGRATIONS[8]
+    sql = " ".join(migration.sql.split())
+    assert migration.version == 9
+    assert migration.name == "maintenance run history"
+    assert "CREATE TABLE IF NOT EXISTS maintenance_runs" in sql
+    assert "detail_json JSONB NOT NULL" in sql
+    assert "idx_maintenance_runs_kind_time" in sql
