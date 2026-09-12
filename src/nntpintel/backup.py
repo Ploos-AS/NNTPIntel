@@ -39,7 +39,7 @@ def postgres_env(database_url: str) -> dict[str, str]:
         env["PGPASSWORD"] = unquote(parsed.password)
 
     query = parse_qs(parsed.query)
-    if "sslmode" in query and query["sslmode"]:
+    if query.get("sslmode"):
         env["PGSSLMODE"] = query["sslmode"][-1]
     return env
 
