@@ -113,13 +113,21 @@ def verify_backup(backup_path: pathlib.Path) -> BackupManifest:
 
 def restore_backup(database_url: str, backup_path: pathlib.Path, *, clean: bool = False) -> BackupManifest:
     manifest = verify_backup(backup_path)
-    command = ["pg_restore", "--no-owner", "--no-privileges", "--exit-on-error"]
+    env = postgres_env(database_url)
+    command = [
+        "pg_restore",
+        "--dbname",
+        env["PGDATABASE"],
+        "--no-owner",
+        "--no-privileges",
+        "--exit-on-error",
+    ]
     if clean:
         command.extend(["--clean", "--if-exists"])
     with backup_path.resolve().open("rb") as source:
         subprocess.run(
             command,
-            env=postgres_env(database_url),
+            env=env,
             stdin=source,
             check=True,
         )
