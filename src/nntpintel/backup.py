@@ -62,11 +62,13 @@ def create_backup(database_url: str, backup_path: pathlib.Path, *, overwrite: bo
         raise FileExistsError(f"backup already exists: {backup_path}")
     backup_path.parent.mkdir(parents=True, exist_ok=True)
 
-    subprocess.run(
-        ["pg_dump", "--format=custom", "--no-owner", "--no-privileges", "--file", str(backup_path)],
-        env=postgres_env(database_url),
-        check=True,
-    )
+    with backup_path.open("wb") as output:
+        subprocess.run(
+            ["pg_dump", "--format=custom", "--no-owner", "--no-privileges"],
+            env=postgres_env(database_url),
+            stdout=output,
+            check=True,
+        )
     manifest = BackupManifest(
         created_at=datetime.datetime.now(datetime.UTC).isoformat(),
         format="postgresql-custom",
@@ -99,7 +101,13 @@ def verify_backup(backup_path: pathlib.Path) -> BackupManifest:
         raise RuntimeError("backup verification failed: size mismatch")
     if sha256_file(backup_path) != manifest.sha256:
         raise RuntimeError("backup verification failed: SHA-256 mismatch")
-    subprocess.run(["pg_restore", "--list", str(backup_path)], check=True, stdout=subprocess.DEVNULL)
+    with backup_path.open("rb") as source:
+        subprocess.run(
+            ["pg_restore", "--list"],
+            stdin=source,
+            stdout=subprocess.DEVNULL,
+            check=True,
+        )
     return manifest
 
 
@@ -108,6 +116,11 @@ def restore_backup(database_url: str, backup_path: pathlib.Path, *, clean: bool 
     command = ["pg_restore", "--no-owner", "--no-privileges", "--exit-on-error"]
     if clean:
         command.extend(["--clean", "--if-exists"])
-    command.append(str(backup_path.resolve()))
-    subprocess.run(command, env=postgres_env(database_url), check=True)
+    with backup_path.resolve().open("rb") as source:
+        subprocess.run(
+            command,
+            env=postgres_env(database_url),
+            stdin=source,
+            check=True,
+        )
     return manifest
