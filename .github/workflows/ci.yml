@@ -49,8 +49,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Install PostgreSQL 17 client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client-17
+      - name: Configure containerized PostgreSQL 17 client
+        run: |
+          mkdir -p /tmp/nntpintel-pg17-bin
+          cat > /tmp/nntpintel-pg17-bin/pg_dump <<'EOF'
+          #!/usr/bin/env bash
+          exec docker run --rm --network host -i \
+            -e PGHOST -e PGPORT -e PGDATABASE -e PGUSER -e PGPASSWORD -e PGSSLMODE \
+            postgres:17-alpine pg_dump "$@"
+          EOF
+          cat > /tmp/nntpintel-pg17-bin/pg_restore <<'EOF'
+          #!/usr/bin/env bash
+          exec docker run --rm --network host -i \
+            -e PGHOST -e PGPORT -e PGDATABASE -e PGUSER -e PGPASSWORD -e PGSSLMODE \
+            postgres:17-alpine pg_restore "$@"
+          EOF
+          chmod +x /tmp/nntpintel-pg17-bin/pg_dump /tmp/nntpintel-pg17-bin/pg_restore
+          echo "/tmp/nntpintel-pg17-bin" >> "$GITHUB_PATH"
       - name: Install PostgreSQL support
         run: python -m pip install -e '.[postgres]'
       - name: Qualify PostgreSQL migrations and partitioned schema
