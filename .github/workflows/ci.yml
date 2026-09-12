@@ -55,6 +55,8 @@ jobs:
         run: python tools/qualify_postgres.py
       - name: Qualify partition lifecycle and maintenance status
         run: python tools/qualify_maintenance.py
+      - name: Qualify exact and bulk partition retirement
+        run: python tools/qualify_partition_retention.py
       - name: Qualify maintenance CLI safety
         run: python tools/qualify_maintenance_cli.py
       - name: Qualify group and hierarchy rollups
