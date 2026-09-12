@@ -1,8 +1,9 @@
 import pathlib
+import subprocess
 
 import pytest
 
-from nntpintel.backup import BackupManifest, manifest_path, postgres_env
+from nntpintel.backup import BackupManifest, manifest_path, postgres_env, restore_backup
 
 
 def test_postgres_env_keeps_credentials_out_of_command_arguments(monkeypatch):
@@ -40,3 +41,31 @@ def test_backup_manifest_serializes_stable_fields():
         "sha256": "a" * 64,
         "size_bytes": 123,
     }
+
+
+def test_restore_targets_database_explicitly(monkeypatch, tmp_path):
+    backup_path = tmp_path / "backup.dump"
+    backup_path.write_bytes(b"dump")
+    manifest = BackupManifest(
+        created_at="2026-09-12T00:00:00+00:00",
+        format="postgresql-custom",
+        sha256="a" * 64,
+        size_bytes=4,
+    )
+    monkeypatch.setattr("nntpintel.backup.verify_backup", lambda path: manifest)
+
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    restore_backup("postgresql://user:secret@example.net:5544/restore_db", backup_path)
+
+    command, kwargs = calls[0]
+    assert command[:3] == ["pg_restore", "--dbname", "restore_db"]
+    assert "secret" not in " ".join(command)
+    assert kwargs["env"]["PGHOST"] == "example.net"
+    assert kwargs["env"]["PGPORT"] == "5544"
+    assert kwargs["env"]["PGPASSWORD"] == "secret"
