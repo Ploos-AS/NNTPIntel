@@ -24,7 +24,7 @@ def _bundle(*, conclusion_type: str, evidence_level: str, risk_path: str, risk_l
 
 def main() -> None:
     storage = PostgresStorage(os.environ["NNTPINTEL_DATABASE_URL"])
-    assert storage.schema_version() == 8
+    assert storage.schema_version() == 9
 
     with storage.connect() as conn:
         server_id = conn.execute(
