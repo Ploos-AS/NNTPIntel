@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from nntpintel.statistics import group_statistics, parse_statistics_time, server_statistics
+from nntpintel.statistics import (
+    group_statistics,
+    parse_statistics_time,
+    protocol_statistics,
+    server_statistics,
+)
 
 
 def _single(params: Mapping[str, Sequence[str]], name: str) -> str | None:
@@ -49,3 +54,7 @@ def server_statistics_request(storage: object, params: Mapping[str, Sequence[str
 
 def group_statistics_request(storage: object, params: Mapping[str, Sequence[str]]) -> dict:
     return group_statistics(storage, **_statistics_request_args(params))
+
+
+def protocol_statistics_request(storage: object, params: Mapping[str, Sequence[str]]) -> dict:
+    return protocol_statistics(storage, **_statistics_request_args(params))
