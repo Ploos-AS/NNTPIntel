@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from nntpintel.statistics import (
+    group_statistics,
     parse_statistics_time,
     server_statistics,
     validate_statistics_range,
@@ -43,6 +44,32 @@ class _Storage:
 
     def __init__(self, rows):
         self.connection = _Connection(rows)
+
+    def connect(self):
+        return self.connection
+
+
+class _SequenceConnection:
+    def __init__(self, result_sets):
+        self.result_sets = list(result_sets)
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, query, params):
+        self.calls.append((query, params))
+        return _Cursor(self.result_sets.pop(0))
+
+
+class _SequenceStorage:
+    backend_name = "postgresql"
+
+    def __init__(self, result_sets):
+        self.connection = _SequenceConnection(result_sets)
 
     def connect(self):
         return self.connection
@@ -101,6 +128,54 @@ def test_server_statistics_queries_rollups_for_bounded_range():
     assert storage.connection.params == ("day", start, end, 7)
 
 
+def test_group_statistics_queries_summary_and_value_rollups():
+    start = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+    end = datetime.datetime(2026, 2, 1, tzinfo=datetime.UTC)
+    summary = {
+        "server_id": 7,
+        "host": "news.example.net",
+        "bucket_start": start,
+        "inventory_count": 31,
+        "snapshot_count": 1200,
+        "observed_group_count": 840,
+        "observed_hierarchy_count": 17,
+        "event_count": 9,
+        "generated_at": end,
+    }
+    value = {
+        "server_id": 7,
+        "host": "news.example.net",
+        "bucket_start": start,
+        "kind": "event_type",
+        "value": "added",
+        "occurrence_count": 5,
+        "generated_at": end,
+    }
+    storage = _SequenceStorage([[summary], [value]])
+
+    result = group_statistics(
+        storage,
+        resolution="day",
+        start=start,
+        end=end,
+        server_id=7,
+    )
+
+    assert result["metric_family"] == "group_hierarchy_inventory_changes"
+    assert result["source"] == ["server_group_rollups", "server_group_value_rollups"]
+    assert result["rows"][0]["observed_group_count"] == 840
+    assert result["rows"][0]["observed_hierarchy_count"] == 17
+    assert result["values"][0]["value"] == "added"
+    assert result["rows"][0]["bucket_start"] == "2026-01-01T00:00:00Z"
+    assert len(storage.connection.calls) == 2
+    assert "server_group_rollups" in storage.connection.calls[0][0]
+    assert "server_group_value_rollups" in storage.connection.calls[1][0]
+    assert storage.connection.calls[0][1] == ("day", start, end, 7)
+    assert storage.connection.calls[1][1] == ("day", start, end, 7)
+    assert "group_snapshots" not in storage.connection.calls[0][0]
+    assert "group_events" not in storage.connection.calls[1][0]
+
+
 def test_server_statistics_all_time_uses_rollups_without_raw_time_bounds():
     storage = _Storage([])
     result = server_statistics(storage, resolution="month")
@@ -116,3 +191,11 @@ def test_server_statistics_rejects_sqlite_backend():
 
     with pytest.raises(RuntimeError, match="PostgreSQL"):
         server_statistics(SQLiteLike(), resolution="day")
+
+
+def test_group_statistics_rejects_legacy_sqlite_storage():
+    class LegacyStorage:
+        pass
+
+    with pytest.raises(RuntimeError, match="PostgreSQL"):
+        group_statistics(LegacyStorage(), resolution="day")
