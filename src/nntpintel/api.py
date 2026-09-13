@@ -255,6 +255,15 @@ class APIHandler(BaseHTTPRequestHandler):
             from nntpintel.web import events_page
             self._send_html(events_page(self.storage)); return
         if path == "/healthz": self._send_json({"status": "ok"}); return
+        if path == "/api/v1/statistics/servers":
+            from nntpintel.statistics_api import server_statistics_request
+            try:
+                payload = server_statistics_request(self.storage, params)
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST); return
+            except RuntimeError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE); return
+            self._send_json(payload); return
         if path == "/servers": self._send_json(list_servers(self.storage)); return
         if path == "/endpoints": self._send_json(list_endpoints(self.storage)); return
         if path == "/groups": self._send_json(list_groups(self.storage)); return
