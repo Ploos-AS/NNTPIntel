@@ -7,7 +7,7 @@ from urllib.request import urlopen
 import pytest
 
 from nntpintel.api import make_server
-from nntpintel.statistics_api import server_statistics_request
+from nntpintel.statistics_api import group_statistics_request, server_statistics_request
 from nntpintel.storage import Storage
 
 
@@ -41,6 +41,36 @@ def test_statistics_request_parses_public_query(monkeypatch):
     }
 
 
+def test_group_statistics_request_parses_public_query(monkeypatch):
+    captured = {}
+
+    def fake_group_statistics(storage, **kwargs):
+        captured["storage"] = storage
+        captured.update(kwargs)
+        return {"rows": [], "values": []}
+
+    monkeypatch.setattr("nntpintel.statistics_api.group_statistics", fake_group_statistics)
+    storage = object()
+    result = group_statistics_request(
+        storage,
+        {
+            "resolution": ["month"],
+            "start": ["2026-01-01T00:00:00Z"],
+            "end": ["2026-07-01T00:00:00Z"],
+            "server_id": ["11"],
+        },
+    )
+
+    assert result == {"rows": [], "values": []}
+    assert captured == {
+        "storage": storage,
+        "resolution": "month",
+        "start": datetime(2026, 1, 1, tzinfo=UTC),
+        "end": datetime(2026, 7, 1, tzinfo=UTC),
+        "server_id": 11,
+    }
+
+
 @pytest.mark.parametrize(
     ("params", "message"),
     [
@@ -53,6 +83,8 @@ def test_statistics_request_parses_public_query(monkeypatch):
 def test_statistics_request_rejects_invalid_public_query(params, message):
     with pytest.raises(ValueError, match=message):
         server_statistics_request(object(), params)
+    with pytest.raises(ValueError, match=message):
+        group_statistics_request(object(), params)
 
 
 def _error_json(url: str) -> tuple[int, dict]:
@@ -69,20 +101,22 @@ def test_statistics_http_validation_and_backend_status(tmp_path):
     host, port = server.server_address
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    base = f"http://{host}:{port}/api/v1/statistics/servers"
+    server_base = f"http://{host}:{port}/api/v1/statistics/servers"
+    group_base = f"http://{host}:{port}/api/v1/statistics/groups"
 
     try:
-        status, payload = _error_json(base)
-        assert status == 400
-        assert payload == {"error": "resolution is required"}
+        for base in (server_base, group_base):
+            status, payload = _error_json(base)
+            assert status == 400
+            assert payload == {"error": "resolution is required"}
 
-        status, payload = _error_json(f"{base}?resolution=day&server_id=nope")
-        assert status == 400
-        assert payload == {"error": "server_id must be a positive integer"}
+            status, payload = _error_json(f"{base}?resolution=day&server_id=nope")
+            assert status == 400
+            assert payload == {"error": "server_id must be a positive integer"}
 
-        status, payload = _error_json(f"{base}?resolution=day")
-        assert status == 503
-        assert "PostgreSQL" in payload["error"]
+            status, payload = _error_json(f"{base}?resolution=day")
+            assert status == 503
+            assert "PostgreSQL" in payload["error"]
     finally:
         server.shutdown()
         server.server_close()
