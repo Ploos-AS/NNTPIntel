@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from nntpintel.statistics import parse_statistics_time, server_statistics
+from nntpintel.statistics import group_statistics, parse_statistics_time, server_statistics
 
 
 def _single(params: Mapping[str, Sequence[str]], name: str) -> str | None:
@@ -14,7 +14,7 @@ def _single(params: Mapping[str, Sequence[str]], name: str) -> str | None:
     return values[0]
 
 
-def server_statistics_request(storage: object, params: Mapping[str, Sequence[str]]) -> dict:
+def _statistics_request_args(params: Mapping[str, Sequence[str]]) -> dict:
     resolution = _single(params, "resolution")
     if not resolution:
         raise ValueError("resolution is required")
@@ -35,10 +35,17 @@ def server_statistics_request(storage: object, params: Mapping[str, Sequence[str
         if server_id <= 0:
             raise ValueError("server_id must be a positive integer")
 
-    return server_statistics(
-        storage,
-        resolution=resolution,
-        start=start,
-        end=end,
-        server_id=server_id,
-    )
+    return {
+        "resolution": resolution,
+        "start": start,
+        "end": end,
+        "server_id": server_id,
+    }
+
+
+def server_statistics_request(storage: object, params: Mapping[str, Sequence[str]]) -> dict:
+    return server_statistics(storage, **_statistics_request_args(params))
+
+
+def group_statistics_request(storage: object, params: Mapping[str, Sequence[str]]) -> dict:
+    return group_statistics(storage, **_statistics_request_args(params))
