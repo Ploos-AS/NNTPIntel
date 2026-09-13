@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 from dataclasses import dataclass
+from decimal import Decimal
 
 from nntpintel.storage_backend import StorageBackend
 
@@ -19,6 +20,15 @@ def _utc(value: datetime.datetime) -> datetime.datetime:
     if value.tzinfo is None:
         raise ValueError("statistics timestamps must include a timezone")
     return value.astimezone(datetime.UTC)
+
+
+def _json_value(value: object) -> object:
+    if isinstance(value, datetime.datetime):
+        normalized = _utc(value).isoformat()
+        return normalized.replace("+00:00", "Z")
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
 
 
 def parse_statistics_time(value: str) -> datetime.datetime:
@@ -96,7 +106,10 @@ def server_statistics(
         ORDER BY r.bucket_start ASC, r.server_id ASC
     """
     with storage.connect() as conn:
-        rows = [dict(row) for row in conn.execute(query, tuple(params)).fetchall()]
+        rows = [
+            {key: _json_value(value) for key, value in dict(row).items()}
+            for row in conn.execute(query, tuple(params)).fetchall()
+        ]
 
     return {
         "api_version": "v1",
@@ -104,8 +117,8 @@ def server_statistics(
         "source": "server_observation_rollups",
         "resolution": window.resolution,
         "range": {
-            "start": window.start,
-            "end": window.end,
+            "start": _json_value(window.start),
+            "end": _json_value(window.end),
             "all_time": window.start is None,
         },
         "server_id": server_id,
