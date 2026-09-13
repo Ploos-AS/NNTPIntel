@@ -7,7 +7,11 @@ from urllib.request import urlopen
 import pytest
 
 from nntpintel.api import make_server
-from nntpintel.statistics_api import group_statistics_request, server_statistics_request
+from nntpintel.statistics_api import (
+    group_statistics_request,
+    protocol_statistics_request,
+    server_statistics_request,
+)
 from nntpintel.storage import Storage
 
 
@@ -71,6 +75,36 @@ def test_group_statistics_request_parses_public_query(monkeypatch):
     }
 
 
+def test_protocol_statistics_request_parses_public_query(monkeypatch):
+    captured = {}
+
+    def fake_protocol_statistics(storage, **kwargs):
+        captured["storage"] = storage
+        captured.update(kwargs)
+        return {"rows": [], "values": []}
+
+    monkeypatch.setattr("nntpintel.statistics_api.protocol_statistics", fake_protocol_statistics)
+    storage = object()
+    result = protocol_statistics_request(
+        storage,
+        {
+            "resolution": ["hour"],
+            "start": ["2026-09-01T00:00:00Z"],
+            "end": ["2026-09-02T00:00:00Z"],
+            "server_id": ["3"],
+        },
+    )
+
+    assert result == {"rows": [], "values": []}
+    assert captured == {
+        "storage": storage,
+        "resolution": "hour",
+        "start": datetime(2026, 9, 1, tzinfo=UTC),
+        "end": datetime(2026, 9, 2, tzinfo=UTC),
+        "server_id": 3,
+    }
+
+
 @pytest.mark.parametrize(
     ("params", "message"),
     [
@@ -81,10 +115,13 @@ def test_group_statistics_request_parses_public_query(monkeypatch):
     ],
 )
 def test_statistics_request_rejects_invalid_public_query(params, message):
-    with pytest.raises(ValueError, match=message):
-        server_statistics_request(object(), params)
-    with pytest.raises(ValueError, match=message):
-        group_statistics_request(object(), params)
+    for request in (
+        server_statistics_request,
+        group_statistics_request,
+        protocol_statistics_request,
+    ):
+        with pytest.raises(ValueError, match=message):
+            request(object(), params)
 
 
 def _error_json(url: str) -> tuple[int, dict]:
@@ -101,11 +138,14 @@ def test_statistics_http_validation_and_backend_status(tmp_path):
     host, port = server.server_address
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    server_base = f"http://{host}:{port}/api/v1/statistics/servers"
-    group_base = f"http://{host}:{port}/api/v1/statistics/groups"
+    bases = (
+        f"http://{host}:{port}/api/v1/statistics/servers",
+        f"http://{host}:{port}/api/v1/statistics/groups",
+        f"http://{host}:{port}/api/v1/statistics/protocol",
+    )
 
     try:
-        for base in (server_base, group_base):
+        for base in bases:
             status, payload = _error_json(base)
             assert status == 400
             assert payload == {"error": "resolution is required"}
