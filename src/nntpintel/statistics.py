@@ -71,7 +71,7 @@ def server_statistics(
 ) -> dict:
     """Return public server availability/latency statistics from production rollups only."""
 
-    if storage.backend_name != "postgresql":
+    if getattr(storage, "backend_name", "sqlite") != "postgresql":
         raise RuntimeError("multi-year statistics require the PostgreSQL production backend")
     window = validate_statistics_range(resolution=resolution, start=start, end=end)
     if server_id is not None and server_id <= 0:
