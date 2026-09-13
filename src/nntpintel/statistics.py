@@ -18,7 +18,7 @@ class StatisticsRange:
 def _utc(value: datetime.datetime) -> datetime.datetime:
     if value.tzinfo is None:
         raise ValueError("statistics timestamps must include a timezone")
-    return value.astimezone(datetime.timezone.utc)
+    return value.astimezone(datetime.UTC)
 
 
 def parse_statistics_time(value: str) -> datetime.datetime:
