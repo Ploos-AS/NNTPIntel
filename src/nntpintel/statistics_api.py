@@ -5,6 +5,7 @@ from collections.abc import Mapping, Sequence
 from nntpintel.statistics import (
     group_statistics,
     parse_statistics_time,
+    propagation_statistics,
     protocol_statistics,
     server_statistics,
 )
@@ -58,3 +59,7 @@ def group_statistics_request(storage: object, params: Mapping[str, Sequence[str]
 
 def protocol_statistics_request(storage: object, params: Mapping[str, Sequence[str]]) -> dict:
     return protocol_statistics(storage, **_statistics_request_args(params))
+
+
+def propagation_statistics_request(storage: object, params: Mapping[str, Sequence[str]]) -> dict:
+    return propagation_statistics(storage, **_statistics_request_args(params))
