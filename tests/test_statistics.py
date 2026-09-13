@@ -49,18 +49,18 @@ class _Storage:
 
 def test_parse_statistics_time_normalizes_to_utc():
     parsed = parse_statistics_time("2026-09-12T21:30:00+02:00")
-    assert parsed == datetime.datetime(2026, 9, 12, 19, 30, tzinfo=datetime.timezone.utc)
+    assert parsed == datetime.datetime(2026, 9, 12, 19, 30, tzinfo=datetime.UTC)
 
 
 def test_statistics_range_requires_complete_bounded_window():
-    start = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+    start = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
     with pytest.raises(ValueError, match="supplied together"):
         validate_statistics_range(resolution="day", start=start)
 
 
 def test_server_statistics_queries_rollups_for_bounded_range():
-    start = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
-    end = datetime.datetime(2026, 2, 1, tzinfo=datetime.timezone.utc)
+    start = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+    end = datetime.datetime(2026, 2, 1, tzinfo=datetime.UTC)
     row = {
         "server_id": 7,
         "host": "news.example.net",
