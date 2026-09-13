@@ -8,6 +8,7 @@ import pytest
 from nntpintel.statistics import (
     group_statistics,
     parse_statistics_time,
+    protocol_statistics,
     server_statistics,
     validate_statistics_range,
 )
@@ -176,6 +177,64 @@ def test_group_statistics_queries_summary_and_value_rollups():
     assert "group_events" not in storage.connection.calls[1][0]
 
 
+def test_protocol_statistics_queries_summary_and_value_rollups():
+    start = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+    end = datetime.datetime(2026, 2, 1, tzinfo=datetime.UTC)
+    summary = {
+        "server_id": 7,
+        "host": "news.example.net",
+        "bucket_start": start,
+        "observation_count": 20,
+        "tls_enabled_count": 18,
+        "tls_ratio": Decimal("0.9"),
+        "capabilities_observed_count": 19,
+        "capability_entry_count": 125,
+        "generated_at": end,
+    }
+    values = [
+        {
+            "server_id": 7,
+            "host": "news.example.net",
+            "bucket_start": start,
+            "kind": "tls_protocol",
+            "value": "TLSv1.3",
+            "occurrence_count": 17,
+            "generated_at": end,
+        },
+        {
+            "server_id": 7,
+            "host": "news.example.net",
+            "bucket_start": start,
+            "kind": "capability",
+            "value": "STARTTLS",
+            "occurrence_count": 19,
+            "generated_at": end,
+        },
+    ]
+    storage = _SequenceStorage([[summary], values])
+
+    result = protocol_statistics(
+        storage,
+        resolution="day",
+        start=start,
+        end=end,
+        server_id=7,
+    )
+
+    assert result["metric_family"] == "protocol_tls_capabilities"
+    assert result["source"] == ["server_protocol_rollups", "server_protocol_value_rollups"]
+    assert result["rows"][0]["tls_ratio"] == pytest.approx(0.9)
+    assert result["values"][0]["kind"] == "tls_protocol"
+    assert result["values"][1]["value"] == "STARTTLS"
+    assert len(storage.connection.calls) == 2
+    assert "server_protocol_rollups" in storage.connection.calls[0][0]
+    assert "server_protocol_value_rollups" in storage.connection.calls[1][0]
+    assert storage.connection.calls[0][1] == ("day", start, end, 7)
+    assert storage.connection.calls[1][1] == ("day", start, end, 7)
+    assert "observations" not in storage.connection.calls[0][0]
+    assert "observations" not in storage.connection.calls[1][0]
+
+
 def test_server_statistics_all_time_uses_rollups_without_raw_time_bounds():
     storage = _Storage([])
     result = server_statistics(storage, resolution="month")
@@ -199,3 +258,11 @@ def test_group_statistics_rejects_legacy_sqlite_storage():
 
     with pytest.raises(RuntimeError, match="PostgreSQL"):
         group_statistics(LegacyStorage(), resolution="day")
+
+
+def test_protocol_statistics_rejects_legacy_sqlite_storage():
+    class LegacyStorage:
+        pass
+
+    with pytest.raises(RuntimeError, match="PostgreSQL"):
+        protocol_statistics(LegacyStorage(), resolution="day")
