@@ -93,6 +93,11 @@ def _statistics_range_payload(window: StatisticsRange) -> dict:
     }
 
 
+def _require_postgresql(storage: StorageBackend) -> None:
+    if getattr(storage, "backend_name", "sqlite") != "postgresql":
+        raise RuntimeError("multi-year statistics require the PostgreSQL production backend")
+
+
 def server_statistics(
     storage: StorageBackend,
     *,
@@ -103,8 +108,7 @@ def server_statistics(
 ) -> dict:
     """Return public server availability/latency statistics from production rollups only."""
 
-    if getattr(storage, "backend_name", "sqlite") != "postgresql":
-        raise RuntimeError("multi-year statistics require the PostgreSQL production backend")
+    _require_postgresql(storage)
     window = validate_statistics_range(resolution=resolution, start=start, end=end)
     where, params = _statistics_filter(window, server_id)
 
@@ -151,8 +155,7 @@ def group_statistics(
 ) -> dict:
     """Return public group/hierarchy inventory and change statistics from rollups only."""
 
-    if getattr(storage, "backend_name", "sqlite") != "postgresql":
-        raise RuntimeError("multi-year statistics require the PostgreSQL production backend")
+    _require_postgresql(storage)
     window = validate_statistics_range(resolution=resolution, start=start, end=end)
     where, params = _statistics_filter(window, server_id)
 
@@ -194,6 +197,66 @@ def group_statistics(
         "api_version": "v1",
         "metric_family": "group_hierarchy_inventory_changes",
         "source": ["server_group_rollups", "server_group_value_rollups"],
+        "resolution": window.resolution,
+        "range": _statistics_range_payload(window),
+        "server_id": server_id,
+        "rows": rows,
+        "values": values,
+    }
+
+
+def protocol_statistics(
+    storage: StorageBackend,
+    *,
+    resolution: str,
+    start: datetime.datetime | None = None,
+    end: datetime.datetime | None = None,
+    server_id: int | None = None,
+) -> dict:
+    """Return public TLS and NNTP capability statistics from production rollups only."""
+
+    _require_postgresql(storage)
+    window = validate_statistics_range(resolution=resolution, start=start, end=end)
+    where, params = _statistics_filter(window, server_id)
+
+    summary_query = f"""
+        SELECT
+            r.server_id,
+            s.host,
+            r.bucket_start,
+            r.observation_count,
+            r.tls_enabled_count,
+            r.tls_ratio,
+            r.capabilities_observed_count,
+            r.capability_entry_count,
+            r.generated_at
+        FROM server_protocol_rollups r
+        JOIN servers s ON s.id = r.server_id
+        WHERE {' AND '.join(where)}
+        ORDER BY r.bucket_start ASC, r.server_id ASC
+    """
+    value_query = f"""
+        SELECT
+            r.server_id,
+            s.host,
+            r.bucket_start,
+            r.kind,
+            r.value,
+            r.occurrence_count,
+            r.generated_at
+        FROM server_protocol_value_rollups r
+        JOIN servers s ON s.id = r.server_id
+        WHERE {' AND '.join(where)}
+        ORDER BY r.bucket_start ASC, r.server_id ASC, r.kind ASC, r.value ASC
+    """
+    with storage.connect() as conn:
+        rows = _json_rows(conn.execute(summary_query, tuple(params)).fetchall())
+        values = _json_rows(conn.execute(value_query, tuple(params)).fetchall())
+
+    return {
+        "api_version": "v1",
+        "metric_family": "protocol_tls_capabilities",
+        "source": ["server_protocol_rollups", "server_protocol_value_rollups"],
         "resolution": window.resolution,
         "range": _statistics_range_payload(window),
         "server_id": server_id,
