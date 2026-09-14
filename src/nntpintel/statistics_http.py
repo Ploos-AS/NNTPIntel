@@ -8,6 +8,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from nntpintel.group_history_web import group_history_page
 from nntpintel.statistics_api import (
     group_statistics_request,
     propagation_statistics_request,
@@ -26,6 +27,7 @@ _ROUTES = {
     "/api/v1/statistics/topology": topology_statistics_request,
 }
 _SERVER_HISTORY = re.compile(r"^/web/statistics/server/(\d+)$")
+_GROUP_HISTORY = re.compile(r"^/web/statistics/server/(\d+)/groups$")
 
 
 class StatisticsHTTPHandler(BaseHTTPRequestHandler):
@@ -52,6 +54,30 @@ class StatisticsHTTPHandler(BaseHTTPRequestHandler):
         params = parse_qs(parsed.query)
         if parsed.path == "/healthz":
             self._send_json({"status": "ok", "backend": self.storage.backend_name})
+            return
+
+        group_match = _GROUP_HISTORY.fullmatch(parsed.path)
+        if group_match:
+            resolution = params.get("resolution", ["day"])[0]
+            preset = params.get("preset", ["30d"])[0]
+            kind = params.get("kind", [None])[0] or None
+            value = params.get("value", [None])[0] or None
+            try:
+                html = group_history_page(
+                    self.storage,
+                    int(group_match.group(1)),
+                    resolution=resolution,
+                    preset=preset,
+                    kind=kind,
+                    value=value,
+                )
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            except RuntimeError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+                return
+            self._send_html(html)
             return
 
         server_match = _SERVER_HISTORY.fullmatch(parsed.path)
