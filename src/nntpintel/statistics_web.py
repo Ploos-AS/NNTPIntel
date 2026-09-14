@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 from html import escape
 from urllib.parse import urlencode
 
@@ -51,6 +52,16 @@ def _range_links() -> str:
     )
 
 
+def resolve_preset(preset: str | None, resolution: str) -> tuple[datetime.datetime | None, datetime.datetime | None]:
+    if preset in {None, "", "all-time"}:
+        return None, None
+    now = datetime.datetime.now(datetime.UTC)
+    days = {"24h": 1, "7d": 7, "30d": 30, "1y": 365}.get(preset)
+    if days is None:
+        raise ValueError("unknown statistics range preset")
+    return now - datetime.timedelta(days=days), now
+
+
 def _table(title: str, rows: list[dict], columns: tuple[str, ...]) -> str:
     if not rows:
         return f"<section><h2>{escape(title)}</h2><p class=\"muted\">No rollup data for this range.</p></section>"
@@ -66,10 +77,13 @@ def historical_statistics_page(
     storage: object,
     *,
     resolution: str = "day",
-    start=None,
-    end=None,
+    start: datetime.datetime | None = None,
+    end: datetime.datetime | None = None,
+    preset: str | None = None,
 ) -> str:
     """Render the production historical-statistics landing page from rollups only."""
+    if preset is not None:
+        start, end = resolve_preset(preset, resolution)
     group = group_statistics(storage, resolution=resolution, start=start, end=end)
     protocol = protocol_statistics(storage, resolution=resolution, start=start, end=end)
     propagation = propagation_statistics(storage, resolution=resolution, start=start, end=end)
@@ -86,9 +100,10 @@ def historical_statistics_page(
             ("Topology buckets", len(topology["rows"])),
         )
     )
+    range_label = preset or "all-time"
     body = f"""
 <section><h2>Historical overview</h2>
-<p>Resolution: <strong>{escape(resolution)}</strong></p>
+<p>Range: <strong>{escape(range_label)}</strong> · Resolution: <strong>{escape(resolution)}</strong></p>
 <p>{_range_links()}</p>
 <div class="cards">{cards}</div></section>
 {_table("Group / hierarchy rollups", group["rows"], ("bucket_start", "server_id", "inventory_count", "observed_group_count", "observed_hierarchy_count", "event_count"))}
