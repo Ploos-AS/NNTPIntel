@@ -8,6 +8,7 @@ from nntpintel.statistics import (
     group_statistics,
     propagation_statistics,
     protocol_statistics,
+    server_statistics,
     topology_statistics,
 )
 
@@ -44,10 +45,10 @@ def _page(title: str, body: str) -> str:
 <main>{body}</main></body></html>"""
 
 
-def _range_links() -> str:
+def _range_links(path: str = "/web/statistics") -> str:
     ranges = (("24h", "hour"), ("7d", "hour"), ("30d", "day"), ("1y", "month"), ("all-time", "month"))
     return " ".join(
-        f'<a href="/web/statistics?{urlencode({"preset": label, "resolution": resolution})}">{label}</a>'
+        f'<a href="{path}?{urlencode({"preset": label, "resolution": resolution})}">{label}</a>'
         for label, resolution in ranges
     )
 
@@ -113,3 +114,44 @@ def historical_statistics_page(
 {_table("Inferred topology rollups", topology["rows"], ("bucket_start", "snapshot_count", "conclusion_count", "incident_started_count"))}
 """
     return _page("Historical statistics", body)
+
+
+def server_history_page(
+    storage: object,
+    server_id: int,
+    *,
+    resolution: str = "hour",
+    preset: str | None = "7d",
+) -> str:
+    """Render one server's historical availability and latency rollups."""
+    if server_id <= 0:
+        raise ValueError("server_id must be a positive integer")
+    start, end = resolve_preset(preset, resolution) if preset is not None else (None, None)
+    payload = server_statistics(
+        storage,
+        resolution=resolution,
+        start=start,
+        end=end,
+        server_id=server_id,
+    )
+    rows = payload["rows"]
+    host = rows[0].get("host") if rows else f"server {server_id}"
+    availability = [row.get("availability_ratio") for row in rows if row.get("availability_ratio") is not None]
+    latency = [row.get("connect_ms_avg") for row in rows if row.get("connect_ms_avg") is not None]
+    cards = "".join(
+        f'<div class="card"><div class="muted">{escape(label)}</div><div class="metric">{escape(str(value))}</div></div>'
+        for label, value in (
+            ("Buckets", len(rows)),
+            ("Avg availability", f"{sum(availability) / len(availability):.3f}" if availability else "n/a"),
+            ("Avg connect ms", f"{sum(latency) / len(latency):.1f}" if latency else "n/a"),
+        )
+    )
+    path = f"/web/statistics/server/{server_id}"
+    body = f"""
+<section><h2>{escape(str(host))}</h2>
+<p>Server ID: <strong>{server_id}</strong> · Range: <strong>{escape(preset or "all-time")}</strong> · Resolution: <strong>{escape(resolution)}</strong></p>
+<p><a href="/web/statistics">← Overview</a> &nbsp; {_range_links(path)}</p>
+<div class="cards">{cards}</div></section>
+{_table("Availability and latency history", rows, ("bucket_start", "server_id", "host", "observation_count", "success_count", "failure_count", "availability_ratio", "connect_ms_count", "connect_ms_avg", "connect_ms_min", "connect_ms_max"))}
+"""
+    return _page(f"Server {server_id} history", body)
