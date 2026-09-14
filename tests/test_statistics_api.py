@@ -12,6 +12,7 @@ from nntpintel.statistics_api import (
     propagation_statistics_request,
     protocol_statistics_request,
     server_statistics_request,
+    topology_statistics_request,
 )
 from nntpintel.storage import Storage
 
@@ -58,6 +59,22 @@ def test_propagation_statistics_request_parses_public_query(monkeypatch):
     result = propagation_statistics_request(storage, {"resolution": ["day"], "start": ["2026-09-01T00:00:00Z"], "end": ["2026-09-08T00:00:00Z"], "server_id": ["5"]})
     assert result == {"rows": [], "values": [], "campaigns": []}
     assert captured == {"storage": storage, "resolution": "day", "start": datetime(2026, 9, 1, tzinfo=UTC), "end": datetime(2026, 9, 8, tzinfo=UTC), "server_id": 5}
+
+
+def test_topology_statistics_request_parses_global_query(monkeypatch):
+    captured = {}
+    def fake_topology_statistics(storage, **kwargs):
+        captured["storage"] = storage; captured.update(kwargs); return {"rows": [], "values": []}
+    monkeypatch.setattr("nntpintel.statistics_api.topology_statistics", fake_topology_statistics)
+    storage = object()
+    result = topology_statistics_request(storage, {"resolution": ["month"], "start": ["2026-01-01T00:00:00Z"], "end": ["2026-07-01T00:00:00Z"]})
+    assert result == {"rows": [], "values": []}
+    assert captured == {"storage": storage, "resolution": "month", "start": datetime(2026, 1, 1, tzinfo=UTC), "end": datetime(2026, 7, 1, tzinfo=UTC)}
+
+
+def test_topology_statistics_request_rejects_server_filter():
+    with pytest.raises(ValueError, match="not supported"):
+        topology_statistics_request(object(), {"resolution": ["day"], "server_id": ["7"]})
 
 
 @pytest.mark.parametrize(("params", "message"), [({}, "resolution is required"), ({"resolution": ["day", "month"]}, "resolution must be specified once"), ({"resolution": ["day"], "server_id": ["x"]}, "server_id must be a positive integer"), ({"resolution": ["day"], "server_id": ["0"]}, "server_id must be a positive integer")])
