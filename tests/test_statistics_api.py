@@ -117,3 +117,24 @@ def test_statistics_http_validation_and_backend_status(tmp_path):
             assert "PostgreSQL" in payload["error"]
     finally:
         server.shutdown(); server.server_close(); thread.join(timeout=2)
+
+
+def test_topology_statistics_http_contract(tmp_path):
+    storage = Storage(tmp_path / "nntpintel.db")
+    server = make_server(storage, "127.0.0.1", 0)
+    host, port = server.server_address
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://{host}:{port}/api/v1/statistics/topology"
+    try:
+        status, payload = _error_json(base)
+        assert status == 400
+        assert payload == {"error": "resolution is required"}
+        status, payload = _error_json(f"{base}?resolution=day&server_id=7")
+        assert status == 400
+        assert "not supported" in payload["error"]
+        status, payload = _error_json(f"{base}?resolution=day")
+        assert status == 503
+        assert "PostgreSQL" in payload["error"]
+    finally:
+        server.shutdown(); server.server_close(); thread.join(timeout=2)
