@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
+
+from nntpintel.statistics_api import (
+    group_statistics_request,
+    propagation_statistics_request,
+    protocol_statistics_request,
+    server_statistics_request,
+    topology_statistics_request,
+)
+from nntpintel.storage_backend import StorageBackend, open_storage
+
+_ROUTES = {
+    "/api/v1/statistics/servers": server_statistics_request,
+    "/api/v1/statistics/groups": group_statistics_request,
+    "/api/v1/statistics/protocol": protocol_statistics_request,
+    "/api/v1/statistics/propagation": propagation_statistics_request,
+    "/api/v1/statistics/topology": topology_statistics_request,
+}
+
+
+class StatisticsHTTPHandler(BaseHTTPRequestHandler):
+    storage: StorageBackend
+
+    def _send_json(self, payload: object, status: HTTPStatus = HTTPStatus.OK) -> None:
+        body = json.dumps(payload, sort_keys=True).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path == "/healthz":
+            self._send_json({"status": "ok", "backend": self.storage.backend_name})
+            return
+
+        request = _ROUTES.get(parsed.path)
+        if request is None:
+            self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            return
+
+        try:
+            payload = request(self.storage, parse_qs(parsed.query))
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        except RuntimeError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        self._send_json(payload)
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+
+def make_statistics_server(
+    storage: StorageBackend,
+    host: str = "127.0.0.1",
+    port: int = 8080,
+) -> ThreadingHTTPServer:
+    handler = type("NNTPIntelStatisticsHTTPHandler", (StatisticsHTTPHandler,), {"storage": storage})
+    return ThreadingHTTPServer((host, port), handler)
+
+
+def serve_statistics(
+    database_url: str,
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8080,
+) -> None:
+    storage = open_storage(database_url)
+    if storage.backend_name != "postgresql":
+        raise RuntimeError("production statistics HTTP requires PostgreSQL")
+    server = make_statistics_server(storage, host, port)
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="nntpintel-statistics-api")
+    parser.add_argument(
+        "--database-url",
+        default=os.environ.get("NNTPINTEL_DATABASE_URL"),
+        help="PostgreSQL URL; defaults to NNTPINTEL_DATABASE_URL",
+    )
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8080)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if not args.database_url:
+        raise SystemExit("--database-url or NNTPINTEL_DATABASE_URL is required")
+    serve_statistics(args.database_url, host=args.host, port=args.port)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
