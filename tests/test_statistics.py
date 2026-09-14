@@ -11,6 +11,7 @@ from nntpintel.statistics import (
     propagation_statistics,
     protocol_statistics,
     server_statistics,
+    topology_statistics,
     validate_statistics_range,
 )
 
@@ -91,20 +92,7 @@ def test_statistics_range_requires_complete_bounded_window():
 def test_server_statistics_queries_rollups_for_bounded_range():
     start = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
     end = datetime.datetime(2026, 2, 1, tzinfo=datetime.UTC)
-    row = {
-        "server_id": 7,
-        "host": "news.example.net",
-        "bucket_start": start,
-        "observation_count": 12,
-        "success_count": 11,
-        "failure_count": 1,
-        "availability_ratio": Decimal("0.9166666667"),
-        "connect_ms_count": 12,
-        "connect_ms_avg": Decimal("42.0"),
-        "connect_ms_min": Decimal("30.0"),
-        "connect_ms_max": Decimal("70.0"),
-        "generated_at": end,
-    }
+    row = {"server_id": 7, "host": "news.example.net", "bucket_start": start, "observation_count": 12, "success_count": 11, "failure_count": 1, "availability_ratio": Decimal("0.9166666667"), "connect_ms_count": 12, "connect_ms_avg": Decimal("42.0"), "connect_ms_min": Decimal("30.0"), "connect_ms_max": Decimal("70.0"), "generated_at": end}
     storage = _Storage([row])
     result = server_statistics(storage, resolution="day", start=start, end=end, server_id=7)
     assert result["source"] == "server_observation_rollups"
@@ -172,6 +160,25 @@ def test_propagation_statistics_queries_rollups_only():
     assert storage.connection.calls[2][1] == ("day", start, end)
 
 
+def test_topology_statistics_queries_rollups_only():
+    start = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+    end = datetime.datetime(2026, 2, 1, tzinfo=datetime.UTC)
+    summary = {"bucket_start": start, "snapshot_count": 12, "conclusion_count": 8, "incident_started_count": 2, "generated_at": end}
+    values = [{"bucket_start": start, "kind": "risk_level", "value": "elevated", "occurrence_count": 3, "generated_at": end}, {"bucket_start": start, "kind": "evidence_level", "value": "strong", "occurrence_count": 5, "generated_at": end}]
+    storage = _SequenceStorage([[summary], values])
+    result = topology_statistics(storage, resolution="day", start=start, end=end)
+    assert result["metric_family"] == "topology_evidence_incidents"
+    assert result["source"] == ["topology_rollups", "topology_value_rollups"]
+    assert result["rows"][0]["snapshot_count"] == 12
+    assert result["values"][0]["value"] == "elevated"
+    assert len(storage.connection.calls) == 2
+    assert storage.connection.calls[0][1] == ("day", start, end)
+    assert storage.connection.calls[1][1] == ("day", start, end)
+    for query, _params in storage.connection.calls:
+        assert "topology_evidence_snapshots" not in query
+        assert "propagation_incidents" not in query
+
+
 def test_server_statistics_all_time_uses_rollups_without_raw_time_bounds():
     storage = _Storage([])
     result = server_statistics(storage, resolution="month")
@@ -180,7 +187,7 @@ def test_server_statistics_all_time_uses_rollups_without_raw_time_bounds():
     assert "bucket_start >=" not in storage.connection.query
 
 
-@pytest.mark.parametrize("query", [server_statistics, group_statistics, protocol_statistics, propagation_statistics])
+@pytest.mark.parametrize("query", [server_statistics, group_statistics, protocol_statistics, propagation_statistics, topology_statistics])
 def test_statistics_reject_legacy_sqlite_storage(query):
     class LegacyStorage:
         pass
