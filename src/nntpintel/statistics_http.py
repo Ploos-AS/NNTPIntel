@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from nntpintel.group_history_web import group_history_page
+from nntpintel.protocol_history_web import protocol_history_page
 from nntpintel.statistics_api import (
     group_statistics_request,
     propagation_statistics_request,
@@ -28,6 +29,7 @@ _ROUTES = {
 }
 _SERVER_HISTORY = re.compile(r"^/web/statistics/server/(\d+)$")
 _GROUP_HISTORY = re.compile(r"^/web/statistics/server/(\d+)/groups$")
+_PROTOCOL_HISTORY = re.compile(r"^/web/statistics/server/(\d+)/protocol$")
 
 
 class StatisticsHTTPHandler(BaseHTTPRequestHandler):
@@ -54,6 +56,30 @@ class StatisticsHTTPHandler(BaseHTTPRequestHandler):
         params = parse_qs(parsed.query)
         if parsed.path == "/healthz":
             self._send_json({"status": "ok", "backend": self.storage.backend_name})
+            return
+
+        protocol_match = _PROTOCOL_HISTORY.fullmatch(parsed.path)
+        if protocol_match:
+            resolution = params.get("resolution", ["day"])[0]
+            preset = params.get("preset", ["30d"])[0]
+            kind = params.get("kind", [None])[0] or None
+            value = params.get("value", [None])[0] or None
+            try:
+                html = protocol_history_page(
+                    self.storage,
+                    int(protocol_match.group(1)),
+                    resolution=resolution,
+                    preset=preset,
+                    kind=kind,
+                    value=value,
+                )
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            except RuntimeError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+                return
+            self._send_html(html)
             return
 
         group_match = _GROUP_HISTORY.fullmatch(parsed.path)
