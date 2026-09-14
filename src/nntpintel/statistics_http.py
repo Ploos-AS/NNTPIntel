@@ -14,6 +14,7 @@ from nntpintel.statistics_api import (
     server_statistics_request,
     topology_statistics_request,
 )
+from nntpintel.statistics_web import historical_statistics_page
 from nntpintel.storage_backend import StorageBackend, open_storage
 
 _ROUTES = {
@@ -36,10 +37,37 @@ class StatisticsHTTPHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_html(self, html: str, status: HTTPStatus = HTTPStatus.OK) -> None:
+        body = html.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
         if parsed.path == "/healthz":
             self._send_json({"status": "ok", "backend": self.storage.backend_name})
+            return
+
+        if parsed.path == "/web/statistics":
+            resolution = params.get("resolution", ["day"])[0]
+            preset = params.get("preset", [None])[0]
+            try:
+                html = historical_statistics_page(
+                    self.storage,
+                    resolution=resolution,
+                    preset=preset,
+                )
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            except RuntimeError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+                return
+            self._send_html(html)
             return
 
         request = _ROUTES.get(parsed.path)
@@ -48,7 +76,7 @@ class StatisticsHTTPHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            payload = request(self.storage, parse_qs(parsed.query))
+            payload = request(self.storage, params)
         except ValueError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
