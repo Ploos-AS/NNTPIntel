@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import datetime
+import threading
+from urllib.request import urlopen
 
 import pytest
 
+from nntpintel.statistics_http import make_statistics_server
 from nntpintel.statistics_web import historical_statistics_page, resolve_preset
 
 
@@ -69,3 +72,24 @@ def test_historical_statistics_page_passes_bounded_range(monkeypatch):
     assert len(captured) == 4
     assert all(item["resolution"] == "hour" for item in captured)
     assert all(item["start"] is not None and item["end"] is not None for item in captured)
+
+
+def test_statistics_http_serves_historical_page(monkeypatch):
+    monkeypatch.setattr(
+        "nntpintel.statistics_http.historical_statistics_page",
+        lambda storage, **kwargs: "<html>historical statistics</html>",
+    )
+    server = make_statistics_server(_Storage(), "127.0.0.1", 0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        with urlopen(f"http://{host}:{port}/web/statistics?resolution=day&preset=7d", timeout=2) as response:
+            body = response.read().decode("utf-8")
+            assert response.status == 200
+            assert response.headers["Content-Type"].startswith("text/html")
+            assert "historical statistics" in body
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
