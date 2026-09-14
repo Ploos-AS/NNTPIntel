@@ -84,3 +84,5 @@ jobs:
         run: python tools/qualify_propagation_rollups.py
       - name: Qualify topology evidence and incident rollups
         run: python tools/qualify_topology_rollups.py
+      - name: Qualify PostgreSQL statistics HTTP
+        run: python tools/qualify_statistics_http.py
