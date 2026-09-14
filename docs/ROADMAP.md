@@ -74,11 +74,24 @@ Configurable raw-data retention, partition/batch pruning, rollup-coverage safety
 
 ## M9 — Public multi-year statistics service
 
-### M9.0 — Statistics query API
+### M9.0 — Statistics query API — COMPLETE
 
 Versioned public statistics API with explicit range/resolution, bounded arbitrary date ranges and efficient all-time queries against rollups rather than raw observations.
 
-### M9.1 — Historical web statistics
+Implemented and production-qualified:
+
+- server availability/latency statistics
+- group/hierarchy inventory and change statistics
+- TLS/protocol/capability statistics
+- propagation/incident/campaign statistics
+- global inferred-topology evidence/incident statistics
+- strict HTTP query validation and JSON-native payloads
+- dedicated PostgreSQL-only production statistics HTTP service
+- live PostgreSQL 17 HTTP success-path qualification in CI
+
+See `docs/M9_0_STATISTICS_API.md`.
+
+### M9.1 — Historical web statistics — NEXT
 
 Public pages for global statistics, server history, hierarchy/newsgroup history, propagation history, incidents, inferred topology and data-quality/evidence history. Minimum ranges: 24h, 7d, 30d, 1y, bounded custom range and all-time.
 
