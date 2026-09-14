@@ -1,0 +1,71 @@
+from __future__ import annotations
+
+import datetime
+
+import pytest
+
+from nntpintel.statistics_web import historical_statistics_page, resolve_preset
+
+
+class _Storage:
+    backend_name = "postgresql"
+
+
+def _payloads():
+    return (
+        {"rows": [{"bucket_start": "2026-09-15T00:00:00Z", "server_id": 1, "inventory_count": 4, "observed_group_count": 3, "observed_hierarchy_count": 1, "event_count": 2}], "values": []},
+        {"rows": [{"bucket_start": "2026-09-15T00:00:00Z", "server_id": 1, "observation_count": 4, "tls_enabled_count": 3, "tls_ratio": 0.75, "capability_entry_count": 8}], "values": []},
+        {"rows": [{"bucket_start": "2026-09-15T00:00:00Z", "server_id": 1, "probe_count": 4, "present_count": 3, "absent_count": 1, "presence_ratio": 0.75, "incident_started_count": 1}], "values": [], "campaigns": [{"bucket_start": "2026-09-15T00:00:00Z", "created_count": 1, "completed_count": 1, "expired_or_closed_count": 0}]},
+        {"rows": [{"bucket_start": "2026-09-15T00:00:00Z", "snapshot_count": 2, "conclusion_count": 1, "incident_started_count": 0}], "values": []},
+    )
+
+
+def test_resolve_preset_uses_utc_bounded_ranges():
+    start, end = resolve_preset("24h", "hour")
+    assert end is not None and start is not None
+    assert end.tzinfo == datetime.UTC
+    assert end - start == datetime.timedelta(days=1)
+
+
+def test_resolve_preset_all_time_is_unbounded():
+    assert resolve_preset("all-time", "month") == (None, None)
+
+
+def test_resolve_preset_rejects_unknown():
+    with pytest.raises(ValueError, match="unknown statistics range preset"):
+        resolve_preset("90d", "day")
+
+
+def test_historical_statistics_page_renders_rollup_sections(monkeypatch):
+    payloads = iter(_payloads())
+    monkeypatch.setattr("nntpintel.statistics_web.group_statistics", lambda *a, **k: next(payloads))
+    monkeypatch.setattr("nntpintel.statistics_web.protocol_statistics", lambda *a, **k: next(payloads))
+    monkeypatch.setattr("nntpintel.statistics_web.propagation_statistics", lambda *a, **k: next(payloads))
+    monkeypatch.setattr("nntpintel.statistics_web.topology_statistics", lambda *a, **k: next(payloads))
+    html = historical_statistics_page(_Storage(), resolution="day", preset="30d")
+    assert "Historical overview" in html
+    assert "Group / hierarchy rollups" in html
+    assert "Protocol / TLS rollups" in html
+    assert "Propagation campaigns" in html
+    assert "Inferred topology rollups" in html
+    assert "preset=24h" in html
+
+
+def test_historical_statistics_page_passes_bounded_range(monkeypatch):
+    captured = []
+    payloads = iter(_payloads())
+
+    def capture(function):
+        def wrapped(storage, **kwargs):
+            captured.append(kwargs)
+            return next(payloads)
+        return wrapped
+
+    monkeypatch.setattr("nntpintel.statistics_web.group_statistics", capture("group"))
+    monkeypatch.setattr("nntpintel.statistics_web.protocol_statistics", capture("protocol"))
+    monkeypatch.setattr("nntpintel.statistics_web.propagation_statistics", capture("propagation"))
+    monkeypatch.setattr("nntpintel.statistics_web.topology_statistics", capture("topology"))
+    historical_statistics_page(_Storage(), resolution="hour", preset="7d")
+    assert len(captured) == 4
+    assert all(item["resolution"] == "hour" for item in captured)
+    assert all(item["start"] is not None and item["end"] is not None for item in captured)
