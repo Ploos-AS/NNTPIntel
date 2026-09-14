@@ -8,6 +8,7 @@ from nntpintel.statistics import (
     propagation_statistics,
     protocol_statistics,
     server_statistics,
+    topology_statistics,
 )
 
 
@@ -49,6 +50,13 @@ def _statistics_request_args(params: Mapping[str, Sequence[str]]) -> dict:
     }
 
 
+def _global_statistics_request_args(params: Mapping[str, Sequence[str]]) -> dict:
+    args = _statistics_request_args(params)
+    if args.pop("server_id") is not None:
+        raise ValueError("server_id is not supported for topology statistics")
+    return args
+
+
 def server_statistics_request(storage: object, params: Mapping[str, Sequence[str]]) -> dict:
     return server_statistics(storage, **_statistics_request_args(params))
 
@@ -63,3 +71,7 @@ def protocol_statistics_request(storage: object, params: Mapping[str, Sequence[s
 
 def propagation_statistics_request(storage: object, params: Mapping[str, Sequence[str]]) -> dict:
     return propagation_statistics(storage, **_statistics_request_args(params))
+
+
+def topology_statistics_request(storage: object, params: Mapping[str, Sequence[str]]) -> dict:
+    return topology_statistics(storage, **_global_statistics_request_args(params))
