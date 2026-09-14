@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -14,7 +15,7 @@ from nntpintel.statistics_api import (
     server_statistics_request,
     topology_statistics_request,
 )
-from nntpintel.statistics_web import historical_statistics_page
+from nntpintel.statistics_web import historical_statistics_page, server_history_page
 from nntpintel.storage_backend import StorageBackend, open_storage
 
 _ROUTES = {
@@ -24,6 +25,7 @@ _ROUTES = {
     "/api/v1/statistics/propagation": propagation_statistics_request,
     "/api/v1/statistics/topology": topology_statistics_request,
 }
+_SERVER_HISTORY = re.compile(r"^/web/statistics/server/(\d+)$")
 
 
 class StatisticsHTTPHandler(BaseHTTPRequestHandler):
@@ -50,6 +52,26 @@ class StatisticsHTTPHandler(BaseHTTPRequestHandler):
         params = parse_qs(parsed.query)
         if parsed.path == "/healthz":
             self._send_json({"status": "ok", "backend": self.storage.backend_name})
+            return
+
+        server_match = _SERVER_HISTORY.fullmatch(parsed.path)
+        if server_match:
+            resolution = params.get("resolution", ["hour"])[0]
+            preset = params.get("preset", ["7d"])[0]
+            try:
+                html = server_history_page(
+                    self.storage,
+                    int(server_match.group(1)),
+                    resolution=resolution,
+                    preset=preset,
+                )
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            except RuntimeError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+                return
+            self._send_html(html)
             return
 
         if parsed.path == "/web/statistics":
