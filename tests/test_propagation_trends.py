@@ -1,6 +1,6 @@
 import json
 import threading
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from urllib.request import urlopen
 
 from nntpintel.api import make_server
@@ -10,14 +10,15 @@ from nntpintel.propagation_trends import propagation_trends
 from nntpintel.storage import Storage
 
 
-def _build_trend_fixture(tmp_path):
+def _build_trend_fixture(tmp_path, *, base_day: datetime | None = None):
     storage = Storage(tmp_path / "nntpintel.db")
     fast = storage.ensure_endpoint("fast.example.test")
     slow = storage.ensure_endpoint("slow.example.test")
+    day = base_day or datetime(2026, 9, 8, tzinfo=UTC)
     for index, delay in enumerate((60, 70, 80), start=1):
         message_id = f"<trend-{index}@example.test>"
         create_campaign(storage, message_id, [fast, slow], stop_after_visible=2)
-        base = datetime(2026, 9, 8, index, 0, tzinfo=UTC)
+        base = day.replace(hour=index, minute=0, second=0, microsecond=0)
         record_presence(
             storage,
             message_id,
@@ -70,7 +71,10 @@ def test_trends_requires_three_samples_before_lagging(tmp_path):
 
 
 def test_propagation_trends_api_and_web(tmp_path):
-    storage = _build_trend_fixture(tmp_path)
+    # Keep integration fixture inside the live 7-day window so this test does
+    # not expire as wall-clock time advances.
+    fixture_day = datetime.now(UTC) - timedelta(days=1)
+    storage = _build_trend_fixture(tmp_path, base_day=fixture_day)
     server = make_server(storage, "127.0.0.1", 0)
     host, port = server.server_address
     thread = threading.Thread(target=server.serve_forever, daemon=True)
