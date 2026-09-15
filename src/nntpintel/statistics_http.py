@@ -20,6 +20,7 @@ from nntpintel.statistics_api import (
 )
 from nntpintel.statistics_web import historical_statistics_page, server_history_page
 from nntpintel.storage_backend import StorageBackend, open_storage
+from nntpintel.topology_history_web import topology_history_page
 
 _ROUTES = {
     "/api/v1/statistics/servers": server_statistics_request,
@@ -58,6 +59,28 @@ class StatisticsHTTPHandler(BaseHTTPRequestHandler):
         params = parse_qs(parsed.query)
         if parsed.path == "/healthz":
             self._send_json({"status": "ok", "backend": self.storage.backend_name})
+            return
+
+        if parsed.path == "/web/statistics/topology":
+            resolution = params.get("resolution", ["day"])[0]
+            preset = params.get("preset", ["30d"])[0]
+            kind = params.get("kind", [None])[0] or None
+            value = params.get("value", [None])[0] or None
+            try:
+                html = topology_history_page(
+                    self.storage,
+                    resolution=resolution,
+                    preset=preset,
+                    kind=kind,
+                    value=value,
+                )
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            except RuntimeError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+                return
+            self._send_html(html)
             return
 
         propagation_match = _PROPAGATION_HISTORY.fullmatch(parsed.path)
