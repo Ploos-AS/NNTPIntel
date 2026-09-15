@@ -17,6 +17,27 @@ def _value_filter(values: list[dict], kind: str | None, value: str | None) -> li
     return filtered
 
 
+def _time_semantics(rows: list[dict], values: list[dict]) -> str:
+    buckets = [str(row.get("bucket_start")) for row in rows if row.get("bucket_start") is not None]
+    value_buckets = [str(row.get("bucket_start")) for row in values if row.get("bucket_start") is not None]
+    observed = sorted(buckets + value_buckets)
+    first_seen = observed[0] if observed else "n/a"
+    last_seen = observed[-1] if observed else "n/a"
+    changed = sorted(
+        str(row.get("bucket_start"))
+        for row in rows
+        if row.get("bucket_start") is not None and int(row.get("event_count") or 0) > 0
+    )
+    changed_at = changed[-1] if changed else "none in selected range"
+    return f"""<section><h2>Time semantics</h2>
+<div class="cards">
+<div class="card"><div class="muted">First seen in selected rollups</div><div>{escape(first_seen)}</div></div>
+<div class="card"><div class="muted">Last seen in selected rollups</div><div>{escape(last_seen)}</div></div>
+<div class="card"><div class="muted">Last changed bucket</div><div>{escape(changed_at)}</div></div>
+</div>
+<p class="muted"><strong>First seen</strong> and <strong>last seen</strong> mean the first and last rollup buckets returned for the selected range; they are not claims about the lifetime of the server or group. <strong>Changed at</strong> identifies the latest returned bucket containing one or more recorded group/hierarchy events, not an exact raw-event timestamp.</p></section>"""
+
+
 def group_history_page(
     storage: object,
     server_id: int,
@@ -54,6 +75,7 @@ def group_history_page(
 {_range_form(path, resolution, start, end)}
 <p><a href="/api/v1/statistics/groups?{urlencode(api_query)}">JSON API for this server</a></p>
 </section>
+{_time_semantics(rows, values)}
 {_table("Inventory history", rows, ("bucket_start", "host", "inventory_count", "snapshot_count", "observed_group_count", "observed_hierarchy_count", "event_count"))}
 {_table("Hierarchy / group values", values, ("bucket_start", "host", "kind", "value", "occurrence_count"))}
 """
