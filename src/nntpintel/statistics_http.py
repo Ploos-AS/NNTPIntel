@@ -70,8 +70,17 @@ class StatisticsHTTPHandler(BaseHTTPRequestHandler):
             preset = params.get("preset", ["30d"])[0]
             kind = params.get("kind", [None])[0] or None
             value = params.get("value", [None])[0] or None
+            start_text = params.get("start", [None])[0] or None
+            end_text = params.get("end", [None])[0] or None
             try:
-                html = topology_history_page(self.storage, resolution=resolution, preset=preset, kind=kind, value=value)
+                start, end, range_label = resolve_web_range(
+                    resolution=resolution, preset=preset, start_text=start_text, end_text=end_text
+                )
+                html = topology_history_page(
+                    self.storage, resolution=resolution,
+                    preset=None if range_label == "custom" else preset,
+                    start=start, end=end, range_label=range_label, kind=kind, value=value,
+                )
             except ValueError as exc:
                 self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST); return
             except RuntimeError as exc:
@@ -82,8 +91,14 @@ class StatisticsHTTPHandler(BaseHTTPRequestHandler):
         if propagation_match:
             resolution = params.get("resolution", ["day"])[0]; preset = params.get("preset", ["30d"])[0]
             kind = params.get("kind", [None])[0] or None; value = params.get("value", [None])[0] or None
+            start_text = params.get("start", [None])[0] or None; end_text = params.get("end", [None])[0] or None
             try:
-                html = propagation_history_page(self.storage, int(propagation_match.group(1)), resolution=resolution, preset=preset, kind=kind, value=value)
+                start, end, range_label = resolve_web_range(resolution=resolution, preset=preset, start_text=start_text, end_text=end_text)
+                html = propagation_history_page(
+                    self.storage, int(propagation_match.group(1)), resolution=resolution,
+                    preset=None if range_label == "custom" else preset, start=start, end=end,
+                    range_label=range_label, kind=kind, value=value,
+                )
             except ValueError as exc:
                 self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST); return
             except RuntimeError as exc:
@@ -94,8 +109,14 @@ class StatisticsHTTPHandler(BaseHTTPRequestHandler):
         if protocol_match:
             resolution = params.get("resolution", ["day"])[0]; preset = params.get("preset", ["30d"])[0]
             kind = params.get("kind", [None])[0] or None; value = params.get("value", [None])[0] or None
+            start_text = params.get("start", [None])[0] or None; end_text = params.get("end", [None])[0] or None
             try:
-                html = protocol_history_page(self.storage, int(protocol_match.group(1)), resolution=resolution, preset=preset, kind=kind, value=value)
+                start, end, range_label = resolve_web_range(resolution=resolution, preset=preset, start_text=start_text, end_text=end_text)
+                html = protocol_history_page(
+                    self.storage, int(protocol_match.group(1)), resolution=resolution,
+                    preset=None if range_label == "custom" else preset, start=start, end=end,
+                    range_label=range_label, kind=kind, value=value,
+                )
             except ValueError as exc:
                 self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST); return
             except RuntimeError as exc:
@@ -106,8 +127,14 @@ class StatisticsHTTPHandler(BaseHTTPRequestHandler):
         if group_match:
             resolution = params.get("resolution", ["day"])[0]; preset = params.get("preset", ["30d"])[0]
             kind = params.get("kind", [None])[0] or None; value = params.get("value", [None])[0] or None
+            start_text = params.get("start", [None])[0] or None; end_text = params.get("end", [None])[0] or None
             try:
-                html = group_history_page(self.storage, int(group_match.group(1)), resolution=resolution, preset=preset, kind=kind, value=value)
+                start, end, range_label = resolve_web_range(resolution=resolution, preset=preset, start_text=start_text, end_text=end_text)
+                html = group_history_page(
+                    self.storage, int(group_match.group(1)), resolution=resolution,
+                    preset=None if range_label == "custom" else preset, start=start, end=end,
+                    range_label=range_label, kind=kind, value=value,
+                )
             except ValueError as exc:
                 self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST); return
             except RuntimeError as exc:
