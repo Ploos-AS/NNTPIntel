@@ -14,6 +14,10 @@ class _Storage:
     backend_name = "postgresql"
 
 
+def _server_payload():
+    return {"rows": [{"bucket_start": "2026-09-15T00:00:00Z", "server_id": 1, "host": "news.example", "observation_count": 4, "success_count": 4, "failure_count": 0, "availability_ratio": 1.0, "connect_ms_count": 4, "connect_ms_avg": 50.0, "connect_ms_min": 40.0, "connect_ms_max": 60.0}]}
+
+
 def _payloads():
     return (
         {"rows": [{"bucket_start": "2026-09-15T00:00:00Z", "server_id": 1, "inventory_count": 4, "observed_group_count": 3, "observed_hierarchy_count": 1, "event_count": 2}], "values": []},
@@ -21,6 +25,15 @@ def _payloads():
         {"rows": [{"bucket_start": "2026-09-15T00:00:00Z", "server_id": 1, "probe_count": 4, "present_count": 3, "absent_count": 1, "presence_ratio": 0.75, "incident_started_count": 1}], "values": [], "campaigns": [{"bucket_start": "2026-09-15T00:00:00Z", "created_count": 1, "completed_count": 1, "expired_or_closed_count": 0}]},
         {"rows": [{"bucket_start": "2026-09-15T00:00:00Z", "snapshot_count": 2, "conclusion_count": 1, "incident_started_count": 0}], "values": []},
     )
+
+
+def _mock_overview(monkeypatch):
+    payloads = iter(_payloads())
+    monkeypatch.setattr("nntpintel.statistics_web.server_statistics", lambda *a, **k: _server_payload())
+    monkeypatch.setattr("nntpintel.statistics_web.group_statistics", lambda *a, **k: next(payloads))
+    monkeypatch.setattr("nntpintel.statistics_web.protocol_statistics", lambda *a, **k: next(payloads))
+    monkeypatch.setattr("nntpintel.statistics_web.propagation_statistics", lambda *a, **k: next(payloads))
+    monkeypatch.setattr("nntpintel.statistics_web.topology_statistics", lambda *a, **k: next(payloads))
 
 
 def test_resolve_preset_uses_utc_bounded_ranges():
@@ -40,13 +53,12 @@ def test_resolve_preset_rejects_unknown():
 
 
 def test_historical_statistics_page_renders_rollup_sections(monkeypatch):
-    payloads = iter(_payloads())
-    monkeypatch.setattr("nntpintel.statistics_web.group_statistics", lambda *a, **k: next(payloads))
-    monkeypatch.setattr("nntpintel.statistics_web.protocol_statistics", lambda *a, **k: next(payloads))
-    monkeypatch.setattr("nntpintel.statistics_web.propagation_statistics", lambda *a, **k: next(payloads))
-    monkeypatch.setattr("nntpintel.statistics_web.topology_statistics", lambda *a, **k: next(payloads))
+    _mock_overview(monkeypatch)
     html = historical_statistics_page(_Storage(), resolution="day", preset="30d")
     assert "Historical overview" in html
+    assert "Browse servers" in html
+    assert "news.example" in html
+    assert "/web/statistics/server/1" in html
     assert "Group / hierarchy rollups" in html
     assert "Protocol / TLS rollups" in html
     assert "Propagation campaigns" in html
@@ -62,43 +74,27 @@ def test_historical_statistics_page_passes_bounded_range(monkeypatch):
     captured = []
     payloads = iter(_payloads())
 
-    def capture(function):
-        def wrapped(storage, **kwargs):
-            captured.append(kwargs)
-            return next(payloads)
-        return wrapped
+    def capture_server(storage, **kwargs):
+        captured.append(kwargs)
+        return _server_payload()
 
-    monkeypatch.setattr("nntpintel.statistics_web.group_statistics", capture("group"))
-    monkeypatch.setattr("nntpintel.statistics_web.protocol_statistics", capture("protocol"))
-    monkeypatch.setattr("nntpintel.statistics_web.propagation_statistics", capture("propagation"))
-    monkeypatch.setattr("nntpintel.statistics_web.topology_statistics", capture("topology"))
+    def capture(storage, **kwargs):
+        captured.append(kwargs)
+        return next(payloads)
+
+    monkeypatch.setattr("nntpintel.statistics_web.server_statistics", capture_server)
+    monkeypatch.setattr("nntpintel.statistics_web.group_statistics", capture)
+    monkeypatch.setattr("nntpintel.statistics_web.protocol_statistics", capture)
+    monkeypatch.setattr("nntpintel.statistics_web.propagation_statistics", capture)
+    monkeypatch.setattr("nntpintel.statistics_web.topology_statistics", capture)
     historical_statistics_page(_Storage(), resolution="hour", preset="7d")
-    assert len(captured) == 4
+    assert len(captured) == 5
     assert all(item["resolution"] == "hour" for item in captured)
     assert all(item["start"] is not None and item["end"] is not None for item in captured)
 
 
 def test_server_history_page_renders_server_metrics(monkeypatch):
-    monkeypatch.setattr(
-        "nntpintel.statistics_web.server_statistics",
-        lambda *args, **kwargs: {
-            "rows": [
-                {
-                    "bucket_start": "2026-09-15T00:00:00Z",
-                    "server_id": 7,
-                    "host": "news.example",
-                    "observation_count": 10,
-                    "success_count": 9,
-                    "failure_count": 1,
-                    "availability_ratio": 0.9,
-                    "connect_ms_count": 9,
-                    "connect_ms_avg": 120.0,
-                    "connect_ms_min": 90.0,
-                    "connect_ms_max": 180.0,
-                }
-            ]
-        },
-    )
+    monkeypatch.setattr("nntpintel.statistics_web.server_statistics", lambda *args, **kwargs: {"rows": [{"bucket_start": "2026-09-15T00:00:00Z", "server_id": 7, "host": "news.example", "observation_count": 10, "success_count": 9, "failure_count": 1, "availability_ratio": 0.9, "connect_ms_count": 9, "connect_ms_avg": 120.0, "connect_ms_min": 90.0, "connect_ms_max": 180.0}]})
     html = server_history_page(_Storage(), 7, resolution="hour", preset="24h")
     assert "news.example" in html
     assert "Avg availability" in html
@@ -108,6 +104,9 @@ def test_server_history_page_renders_server_metrics(monkeypatch):
     assert "Connection latency trend" in html
     assert '<polyline class="series"' in html
     assert "/web/statistics/server/7" in html
+    assert "/web/statistics/server/7/groups" in html
+    assert "/web/statistics/server/7/protocol" in html
+    assert "/web/statistics/server/7/propagation" in html
 
 
 def test_server_history_page_rejects_invalid_server_id():
@@ -116,41 +115,22 @@ def test_server_history_page_rejects_invalid_server_id():
 
 
 def test_statistics_http_serves_historical_page(monkeypatch):
-    monkeypatch.setattr(
-        "nntpintel.statistics_http.historical_statistics_page",
-        lambda storage, **kwargs: "<html>historical statistics</html>",
-    )
-    server = make_statistics_server(_Storage(), "127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
+    monkeypatch.setattr("nntpintel.statistics_http.historical_statistics_page", lambda storage, **kwargs: "<html>historical statistics</html>")
+    server = make_statistics_server(_Storage(), "127.0.0.1", 0); thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     try:
         host, port = server.server_address
         with urlopen(f"http://{host}:{port}/web/statistics?resolution=day&preset=7d", timeout=2) as response:
-            body = response.read().decode("utf-8")
-            assert response.status == 200
-            assert response.headers["Content-Type"].startswith("text/html")
-            assert "historical statistics" in body
+            body = response.read().decode("utf-8"); assert response.status == 200; assert response.headers["Content-Type"].startswith("text/html"); assert "historical statistics" in body
     finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
+        server.shutdown(); server.server_close(); thread.join(timeout=2)
 
 
 def test_statistics_http_serves_server_history(monkeypatch):
-    monkeypatch.setattr(
-        "nntpintel.statistics_http.server_history_page",
-        lambda storage, server_id, **kwargs: f"<html>server {server_id} history</html>",
-    )
-    server = make_statistics_server(_Storage(), "127.0.0.1", 0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
+    monkeypatch.setattr("nntpintel.statistics_http.server_history_page", lambda storage, server_id, **kwargs: f"<html>server {server_id} history</html>")
+    server = make_statistics_server(_Storage(), "127.0.0.1", 0); thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     try:
         host, port = server.server_address
         with urlopen(f"http://{host}:{port}/web/statistics/server/7?resolution=hour&preset=7d", timeout=2) as response:
-            body = response.read().decode("utf-8")
-            assert response.status == 200
-            assert "server 7 history" in body
+            body = response.read().decode("utf-8"); assert response.status == 200; assert "server 7 history" in body
     finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
+        server.shutdown(); server.server_close(); thread.join(timeout=2)
