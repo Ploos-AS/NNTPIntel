@@ -18,7 +18,11 @@ from nntpintel.statistics_api import (
     server_statistics_request,
     topology_statistics_request,
 )
-from nntpintel.statistics_web import historical_statistics_page, resolve_web_range, server_history_page
+from nntpintel.statistics_web import (
+    historical_statistics_page,
+    resolve_web_range,
+    server_history_page,
+)
 from nntpintel.storage_backend import StorageBackend, open_storage
 from nntpintel.topology_history_web import topology_history_page
 
