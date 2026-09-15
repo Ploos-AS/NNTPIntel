@@ -58,7 +58,7 @@ def test_propagation_history_page_renders_trends(monkeypatch):
     assert "0.800" in html
     assert "Incidents started" in html
     assert "propagation_gap" in html
-    assert "Campaign trend" in html
+    assert "Global campaign trend" in html
     assert "/web/statistics/server/7/propagation" in html
 
 
