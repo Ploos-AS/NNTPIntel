@@ -91,11 +91,13 @@ Implemented and production-qualified:
 
 See `docs/M9_0_STATISTICS_API.md`.
 
-### M9.1 — Historical web statistics — NEXT
+### M9.1 — Historical web statistics — COMPLETE
 
-Public pages for global statistics, server history, hierarchy/newsgroup history, propagation history, incidents, inferred topology and data-quality/evidence history. Minimum ranges: 24h, 7d, 30d, 1y, bounded custom range and all-time.
+Public server-rendered pages for global statistics, server history, hierarchy/newsgroup history, protocol/TLS history, propagation/incidents, inferred topology and evidence-friendly rollup inspection. Required ranges are implemented: 24h, 7d, 30d, 1y, bounded custom range and all-time. The UI includes rollup-backed graphs, server discovery/navigation, explicit group-history time semantics and a separately bounded raw-observation drill-down for short diagnostic windows.
 
-### M9.2 — Caching and query protection
+See `docs/M9_1_HISTORICAL_WEB_STATISTICS.md`.
+
+### M9.2 — Caching and query protection — NEXT
 
 Deterministic server-side caching, freshness tied to rollup completion, bounded query costs, pagination where needed and protection against expensive public queries.
 
