@@ -17,6 +17,16 @@ def test_group_history_page_renders_inventory_and_filtered_values(monkeypatch):
         lambda *args, **kwargs: {
             "rows": [
                 {
+                    "bucket_start": "2026-09-14T00:00:00Z",
+                    "server_id": 7,
+                    "host": "news.example",
+                    "inventory_count": 1,
+                    "snapshot_count": 2,
+                    "observed_group_count": 3,
+                    "observed_hierarchy_count": 1,
+                    "event_count": 0,
+                },
+                {
                     "bucket_start": "2026-09-15T00:00:00Z",
                     "server_id": 7,
                     "host": "news.example",
@@ -25,7 +35,7 @@ def test_group_history_page_renders_inventory_and_filtered_values(monkeypatch):
                     "observed_group_count": 3,
                     "observed_hierarchy_count": 1,
                     "event_count": 4,
-                }
+                },
             ],
             "values": [
                 {
@@ -61,6 +71,13 @@ def test_group_history_page_renders_inventory_and_filtered_values(monkeypatch):
     assert "comp" in html
     assert "comp.lang.python" not in html
     assert "server_id=7" in html
+    assert "Time semantics" in html
+    assert "First seen in selected rollups" in html
+    assert "2026-09-14T00:00:00Z" in html
+    assert "Last seen in selected rollups" in html
+    assert "Last changed bucket" in html
+    assert "not claims about the lifetime" in html
+    assert "not an exact raw-event timestamp" in html
 
 
 def test_statistics_http_serves_group_history(monkeypatch):
