@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import datetime
 from html import escape
 from urllib.parse import urlencode
 
 from nntpintel.statistics import protocol_statistics
-from nntpintel.statistics_web import _page, _range_links, _table, resolve_preset
+from nntpintel.statistics_web import _page, _range_form, _range_links, _table, resolve_preset
 
 
 def _value_filter(values: list[dict], kind: str | None, value: str | None) -> list[dict]:
@@ -22,20 +23,19 @@ def protocol_history_page(
     *,
     resolution: str = "day",
     preset: str | None = "30d",
+    start: datetime.datetime | None = None,
+    end: datetime.datetime | None = None,
+    range_label: str | None = None,
     kind: str | None = None,
     value: str | None = None,
 ) -> str:
     """Render one server's TLS/protocol capability history from rollups."""
     if server_id <= 0:
         raise ValueError("server_id must be a positive integer")
-    start, end = resolve_preset(preset, resolution) if preset is not None else (None, None)
-    payload = protocol_statistics(
-        storage,
-        resolution=resolution,
-        start=start,
-        end=end,
-        server_id=server_id,
-    )
+    if start is None and end is None and preset is not None:
+        start, end = resolve_preset(preset, resolution)
+    label = range_label or preset or "all-time"
+    payload = protocol_statistics(storage, resolution=resolution, start=start, end=end, server_id=server_id)
     rows = payload["rows"]
     values = _value_filter(payload["values"], kind, value)
     host = rows[0].get("host") if rows else f"server {server_id}"
@@ -45,18 +45,15 @@ def protocol_history_page(
     path = f"/web/statistics/server/{server_id}/protocol"
     api_query = {"resolution": resolution, "server_id": server_id}
     cards = "".join(
-        f'<div class="card"><div class="muted">{escape(label)}</div><div class="metric">{escape(str(metric))}</div></div>'
-        for label, metric in (
-            ("Buckets", len(rows)),
-            ("Avg TLS ratio", avg_tls),
-            ("Capability entries", capability_entries),
-        )
+        f'<div class="card"><div class="muted">{escape(label_)}</div><div class="metric">{escape(str(metric))}</div></div>'
+        for label_, metric in (("Buckets", len(rows)), ("Avg TLS ratio", avg_tls), ("Capability entries", capability_entries))
     )
     body = f"""
 <section><h2>{escape(str(host))} — TLS / protocol history</h2>
-<p>Server ID: <strong>{server_id}</strong> · Range: <strong>{escape(preset or "all-time")}</strong> · Resolution: <strong>{escape(resolution)}</strong></p>
+<p>Server ID: <strong>{server_id}</strong> · Range: <strong>{escape(label)}</strong> · Resolution: <strong>{escape(resolution)}</strong></p>
 <p><a href="/web/statistics">← Overview</a> &nbsp; <a href="/web/statistics/server/{server_id}">Server history</a></p>
 <p>{_range_links(path)}</p>
+{_range_form(path, resolution, start, end)}
 <p><a href="/api/v1/statistics/protocol?{urlencode(api_query)}">JSON API for this server</a></p>
 <div class="cards">{cards}</div></section>
 {_table("TLS / protocol observations", rows, ("bucket_start", "host", "observation_count", "tls_enabled_count", "tls_ratio", "capabilities_observed_count", "capability_entry_count"))}
