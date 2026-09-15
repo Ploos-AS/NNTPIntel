@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import datetime
 from html import escape
 from urllib.parse import urlencode
 
 from nntpintel.statistics import propagation_statistics
-from nntpintel.statistics_web import _page, _range_links, _table, resolve_preset
+from nntpintel.statistics_web import _page, _range_form, _range_links, _table, resolve_preset
 
 
 def _value_filter(values: list[dict], kind: str | None, value: str | None) -> list[dict]:
@@ -22,20 +23,19 @@ def propagation_history_page(
     *,
     resolution: str = "day",
     preset: str | None = "30d",
+    start: datetime.datetime | None = None,
+    end: datetime.datetime | None = None,
+    range_label: str | None = None,
     kind: str | None = None,
     value: str | None = None,
 ) -> str:
     """Render one server's propagation and incident history from rollups."""
     if server_id <= 0:
         raise ValueError("server_id must be a positive integer")
-    start, end = resolve_preset(preset, resolution) if preset is not None else (None, None)
-    payload = propagation_statistics(
-        storage,
-        resolution=resolution,
-        start=start,
-        end=end,
-        server_id=server_id,
-    )
+    if start is None and end is None and preset is not None:
+        start, end = resolve_preset(preset, resolution)
+    label = range_label or preset or "all-time"
+    payload = propagation_statistics(storage, resolution=resolution, start=start, end=end, server_id=server_id)
     rows = payload["rows"]
     values = _value_filter(payload["values"], kind, value)
     campaigns = payload["campaigns"]
@@ -47,24 +47,20 @@ def propagation_history_page(
     path = f"/web/statistics/server/{server_id}/propagation"
     api_query = {"resolution": resolution, "server_id": server_id}
     cards = "".join(
-        f'<div class="card"><div class="muted">{escape(label)}</div><div class="metric">{escape(str(metric))}</div></div>'
-        for label, metric in (
-            ("Buckets", len(rows)),
-            ("Avg presence ratio", avg_presence),
-            ("Probes", probes),
-            ("Incidents started", incidents),
-        )
+        f'<div class="card"><div class="muted">{escape(label_)}</div><div class="metric">{escape(str(metric))}</div></div>'
+        for label_, metric in (("Buckets", len(rows)), ("Avg presence ratio", avg_presence), ("Probes", probes), ("Incidents started", incidents))
     )
     body = f"""
 <section><h2>{escape(str(host))} — propagation history</h2>
-<p>Server ID: <strong>{server_id}</strong> · Range: <strong>{escape(preset or "all-time")}</strong> · Resolution: <strong>{escape(resolution)}</strong></p>
+<p>Server ID: <strong>{server_id}</strong> · Range: <strong>{escape(label)}</strong> · Resolution: <strong>{escape(resolution)}</strong></p>
 <p><a href="/web/statistics">← Overview</a> &nbsp; <a href="/web/statistics/server/{server_id}">Server history</a></p>
 <p>{_range_links(path)}</p>
+{_range_form(path, resolution, start, end)}
 <p><a href="/api/v1/statistics/propagation?{urlencode(api_query)}">JSON API for this server</a></p>
 <div class="cards">{cards}</div></section>
 {_table("Propagation / incident trend", rows, ("bucket_start", "host", "probe_count", "present_count", "absent_count", "unknown_count", "presence_ratio", "article_count", "first_seen_delay_avg_seconds", "incident_started_count"))}
 {_table("Propagation values", values, ("bucket_start", "host", "kind", "value", "occurrence_count"))}
-{_table("Campaign trend", campaigns, ("bucket_start", "created_count", "completed_count", "expired_or_closed_count"))}
+{_table("Global campaign trend", campaigns, ("bucket_start", "created_count", "completed_count", "expired_or_closed_count"))}
 """
     if kind or value:
         clear_query = urlencode({"resolution": resolution, "preset": preset or "all-time"})
