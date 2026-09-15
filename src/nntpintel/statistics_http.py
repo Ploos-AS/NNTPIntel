@@ -18,7 +18,7 @@ from nntpintel.statistics_api import (
     server_statistics_request,
     topology_statistics_request,
 )
-from nntpintel.statistics_web import historical_statistics_page, server_history_page
+from nntpintel.statistics_web import historical_statistics_page, resolve_web_range, server_history_page
 from nntpintel.storage_backend import StorageBackend, open_storage
 from nntpintel.topology_history_web import topology_history_page
 
@@ -67,166 +67,111 @@ class StatisticsHTTPHandler(BaseHTTPRequestHandler):
             kind = params.get("kind", [None])[0] or None
             value = params.get("value", [None])[0] or None
             try:
-                html = topology_history_page(
-                    self.storage,
-                    resolution=resolution,
-                    preset=preset,
-                    kind=kind,
-                    value=value,
-                )
+                html = topology_history_page(self.storage, resolution=resolution, preset=preset, kind=kind, value=value)
             except ValueError as exc:
-                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
-                return
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST); return
             except RuntimeError as exc:
-                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
-                return
-            self._send_html(html)
-            return
+                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE); return
+            self._send_html(html); return
 
         propagation_match = _PROPAGATION_HISTORY.fullmatch(parsed.path)
         if propagation_match:
-            resolution = params.get("resolution", ["day"])[0]
-            preset = params.get("preset", ["30d"])[0]
-            kind = params.get("kind", [None])[0] or None
-            value = params.get("value", [None])[0] or None
+            resolution = params.get("resolution", ["day"])[0]; preset = params.get("preset", ["30d"])[0]
+            kind = params.get("kind", [None])[0] or None; value = params.get("value", [None])[0] or None
             try:
-                html = propagation_history_page(
-                    self.storage,
-                    int(propagation_match.group(1)),
-                    resolution=resolution,
-                    preset=preset,
-                    kind=kind,
-                    value=value,
-                )
+                html = propagation_history_page(self.storage, int(propagation_match.group(1)), resolution=resolution, preset=preset, kind=kind, value=value)
             except ValueError as exc:
-                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
-                return
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST); return
             except RuntimeError as exc:
-                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
-                return
-            self._send_html(html)
-            return
+                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE); return
+            self._send_html(html); return
 
         protocol_match = _PROTOCOL_HISTORY.fullmatch(parsed.path)
         if protocol_match:
-            resolution = params.get("resolution", ["day"])[0]
-            preset = params.get("preset", ["30d"])[0]
-            kind = params.get("kind", [None])[0] or None
-            value = params.get("value", [None])[0] or None
+            resolution = params.get("resolution", ["day"])[0]; preset = params.get("preset", ["30d"])[0]
+            kind = params.get("kind", [None])[0] or None; value = params.get("value", [None])[0] or None
             try:
-                html = protocol_history_page(
-                    self.storage,
-                    int(protocol_match.group(1)),
-                    resolution=resolution,
-                    preset=preset,
-                    kind=kind,
-                    value=value,
-                )
+                html = protocol_history_page(self.storage, int(protocol_match.group(1)), resolution=resolution, preset=preset, kind=kind, value=value)
             except ValueError as exc:
-                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
-                return
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST); return
             except RuntimeError as exc:
-                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
-                return
-            self._send_html(html)
-            return
+                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE); return
+            self._send_html(html); return
 
         group_match = _GROUP_HISTORY.fullmatch(parsed.path)
         if group_match:
-            resolution = params.get("resolution", ["day"])[0]
-            preset = params.get("preset", ["30d"])[0]
-            kind = params.get("kind", [None])[0] or None
-            value = params.get("value", [None])[0] or None
+            resolution = params.get("resolution", ["day"])[0]; preset = params.get("preset", ["30d"])[0]
+            kind = params.get("kind", [None])[0] or None; value = params.get("value", [None])[0] or None
             try:
-                html = group_history_page(
-                    self.storage,
-                    int(group_match.group(1)),
-                    resolution=resolution,
-                    preset=preset,
-                    kind=kind,
-                    value=value,
-                )
+                html = group_history_page(self.storage, int(group_match.group(1)), resolution=resolution, preset=preset, kind=kind, value=value)
             except ValueError as exc:
-                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
-                return
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST); return
             except RuntimeError as exc:
-                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
-                return
-            self._send_html(html)
-            return
+                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE); return
+            self._send_html(html); return
 
         server_match = _SERVER_HISTORY.fullmatch(parsed.path)
         if server_match:
             resolution = params.get("resolution", ["hour"])[0]
             preset = params.get("preset", ["7d"])[0]
+            start_text = params.get("start", [None])[0] or None
+            end_text = params.get("end", [None])[0] or None
             try:
+                start, end, range_label = resolve_web_range(
+                    resolution=resolution, preset=preset, start_text=start_text, end_text=end_text
+                )
                 html = server_history_page(
-                    self.storage,
-                    int(server_match.group(1)),
-                    resolution=resolution,
-                    preset=preset,
+                    self.storage, int(server_match.group(1)), resolution=resolution,
+                    preset=None if range_label == "custom" else preset,
+                    start=start, end=end, range_label=range_label,
                 )
             except ValueError as exc:
-                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
-                return
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST); return
             except RuntimeError as exc:
-                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
-                return
-            self._send_html(html)
-            return
+                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE); return
+            self._send_html(html); return
 
         if parsed.path == "/web/statistics":
             resolution = params.get("resolution", ["day"])[0]
             preset = params.get("preset", [None])[0]
+            start_text = params.get("start", [None])[0] or None
+            end_text = params.get("end", [None])[0] or None
             try:
+                start, end, range_label = resolve_web_range(
+                    resolution=resolution, preset=preset, start_text=start_text, end_text=end_text
+                )
                 html = historical_statistics_page(
-                    self.storage,
-                    resolution=resolution,
-                    preset=preset,
+                    self.storage, resolution=resolution,
+                    preset=None if range_label == "custom" else preset,
+                    start=start, end=end, range_label=range_label,
                 )
             except ValueError as exc:
-                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
-                return
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST); return
             except RuntimeError as exc:
-                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
-                return
-            self._send_html(html)
-            return
+                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE); return
+            self._send_html(html); return
 
         request = _ROUTES.get(parsed.path)
         if request is None:
-            self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
-            return
-
+            self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND); return
         try:
             payload = request(self.storage, params)
         except ValueError as exc:
-            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
-            return
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST); return
         except RuntimeError as exc:
-            self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
-            return
+            self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE); return
         self._send_json(payload)
 
     def log_message(self, format: str, *args: object) -> None:
         return
 
 
-def make_statistics_server(
-    storage: StorageBackend,
-    host: str = "127.0.0.1",
-    port: int = 8080,
-) -> ThreadingHTTPServer:
+def make_statistics_server(storage: StorageBackend, host: str = "127.0.0.1", port: int = 8080) -> ThreadingHTTPServer:
     handler = type("NNTPIntelStatisticsHTTPHandler", (StatisticsHTTPHandler,), {"storage": storage})
     return ThreadingHTTPServer((host, port), handler)
 
 
-def serve_statistics(
-    database_url: str,
-    *,
-    host: str = "127.0.0.1",
-    port: int = 8080,
-) -> None:
+def serve_statistics(database_url: str, *, host: str = "127.0.0.1", port: int = 8080) -> None:
     storage = open_storage(database_url)
     if storage.backend_name != "postgresql":
         raise RuntimeError("production statistics HTTP requires PostgreSQL")
@@ -239,11 +184,7 @@ def serve_statistics(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="nntpintel-statistics-api")
-    parser.add_argument(
-        "--database-url",
-        default=os.environ.get("NNTPINTEL_DATABASE_URL"),
-        help="PostgreSQL URL; defaults to NNTPINTEL_DATABASE_URL",
-    )
+    parser.add_argument("--database-url", default=os.environ.get("NNTPINTEL_DATABASE_URL"), help="PostgreSQL URL; defaults to NNTPINTEL_DATABASE_URL")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)
     return parser
