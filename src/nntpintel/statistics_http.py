@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 from nntpintel.group_history_web import group_history_page
 from nntpintel.propagation_history_web import propagation_history_page
 from nntpintel.protocol_history_web import protocol_history_page
+from nntpintel.statistics import parse_statistics_time
 from nntpintel.statistics_api import (
     group_statistics_request,
     propagation_statistics_request,
@@ -18,6 +19,7 @@ from nntpintel.statistics_api import (
     server_statistics_request,
     topology_statistics_request,
 )
+from nntpintel.statistics_drilldown import server_observation_drilldown
 from nntpintel.statistics_web import (
     historical_statistics_page,
     resolve_web_range,
@@ -34,6 +36,7 @@ _ROUTES = {
     "/api/v1/statistics/topology": topology_statistics_request,
 }
 _SERVER_HISTORY = re.compile(r"^/web/statistics/server/(\d+)$")
+_SERVER_DRILLDOWN = re.compile(r"^/api/v1/statistics/server/(\d+)/observations$")
 _GROUP_HISTORY = re.compile(r"^/web/statistics/server/(\d+)/groups$")
 _PROTOCOL_HISTORY = re.compile(r"^/web/statistics/server/(\d+)/protocol$")
 _PROPAGATION_HISTORY = re.compile(r"^/web/statistics/server/(\d+)/propagation$")
@@ -63,6 +66,30 @@ class StatisticsHTTPHandler(BaseHTTPRequestHandler):
         params = parse_qs(parsed.query)
         if parsed.path == "/healthz":
             self._send_json({"status": "ok", "backend": self.storage.backend_name})
+            return
+
+        drilldown_match = _SERVER_DRILLDOWN.fullmatch(parsed.path)
+        if drilldown_match:
+            try:
+                start_text = params.get("start", [None])[0]
+                end_text = params.get("end", [None])[0]
+                if not start_text or not end_text:
+                    raise ValueError("start and end are required for raw drill-down")
+                limit_text = params.get("limit", ["100"])[0]
+                payload = server_observation_drilldown(
+                    self.storage,
+                    server_id=int(drilldown_match.group(1)),
+                    start=parse_statistics_time(start_text),
+                    end=parse_statistics_time(end_text),
+                    limit=int(limit_text),
+                )
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            except RuntimeError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+                return
+            self._send_json(payload)
             return
 
         if parsed.path == "/web/statistics/topology":
