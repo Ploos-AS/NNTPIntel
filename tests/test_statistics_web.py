@@ -51,6 +51,10 @@ def test_historical_statistics_page_renders_rollup_sections(monkeypatch):
     assert "Protocol / TLS rollups" in html
     assert "Propagation campaigns" in html
     assert "Inferred topology rollups" in html
+    assert "TLS ratio trend" in html
+    assert "Propagation presence trend" in html
+    assert "Topology incident trend" in html
+    assert '<polyline class="series"' in html
     assert "preset=24h" in html
 
 
@@ -100,6 +104,9 @@ def test_server_history_page_renders_server_metrics(monkeypatch):
     assert "Avg availability" in html
     assert "0.900" in html
     assert "120.0" in html
+    assert "Availability trend" in html
+    assert "Connection latency trend" in html
+    assert '<polyline class="series"' in html
     assert "/web/statistics/server/7" in html
 
 
