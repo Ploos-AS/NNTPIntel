@@ -33,6 +33,11 @@ code { color: #c9e5ff; white-space: pre-wrap; overflow-wrap: anywhere; }
 .range-form { display: flex; flex-wrap: wrap; gap: .65rem; align-items: end; margin: 1rem 0; }
 .range-form label { display: grid; gap: .25rem; color: #a8b5c2; }
 .range-form input, .range-form select, .range-form button { padding: .45rem .55rem; background: #182028; color: #e8edf2; border: 1px solid #465563; border-radius: .3rem; }
+.chart { background: #182028; border: 1px solid #2d3944; border-radius: .6rem; padding: 1rem; overflow-x: auto; }
+.chart svg { display: block; width: 100%; min-width: 520px; height: 220px; }
+.chart .axis { stroke: #465563; stroke-width: 1; }
+.chart .series { fill: none; stroke: #9fd3ff; stroke-width: 2.5; vector-effect: non-scaling-stroke; }
+.chart .point { fill: #9fd3ff; }
 """
 
 
@@ -118,6 +123,46 @@ def _table(title: str, rows: list[dict], columns: tuple[str, ...]) -> str:
     return f"<section><h2>{escape(title)}</h2><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></section>"
 
 
+def _chart(title: str, rows: list[dict], value_key: str, *, percent: bool = False) -> str:
+    """Render a dependency-free SVG trend from already queried rollup rows."""
+    values: list[tuple[str, float]] = []
+    for row in rows:
+        value = row.get(value_key)
+        if value is None:
+            continue
+        try:
+            values.append((str(row.get("bucket_start", "")), float(value)))
+        except (TypeError, ValueError):
+            continue
+    if not values:
+        return f'<section><h2>{escape(title)}</h2><p class="muted">No rollup data for this graph.</p></section>'
+    width, height, pad = 900.0, 200.0, 28.0
+    numeric = [value for _, value in values]
+    low = 0.0 if percent else min(numeric)
+    high = 1.0 if percent else max(numeric)
+    if high <= low:
+        high = low + 1.0
+    span_x = width - 2 * pad
+    span_y = height - 2 * pad
+    denominator = max(len(values) - 1, 1)
+    points = []
+    circles = []
+    for index, (bucket, value) in enumerate(values):
+        x = pad + span_x * index / denominator
+        y = height - pad - span_y * (value - low) / (high - low)
+        points.append(f"{x:.1f},{y:.1f}")
+        circles.append(
+            f'<circle class="point" cx="{x:.1f}" cy="{y:.1f}" r="3"><title>{escape(bucket)}: {value:g}</title></circle>'
+        )
+    first_bucket = escape(values[0][0])
+    last_bucket = escape(values[-1][0])
+    return f'''<section><h2>{escape(title)}</h2><div class="chart">
+<svg viewBox="0 0 900 220" role="img" aria-label="{escape(title)}">
+<line class="axis" x1="28" y1="172" x2="872" y2="172"></line>
+<polyline class="series" points="{' '.join(points)}"></polyline>{''.join(circles)}
+</svg><div class="muted">{first_bucket} → {last_bucket} · {len(values)} rollup buckets</div></div></section>'''
+
+
 def historical_statistics_page(
     storage: object,
     *,
@@ -153,6 +198,9 @@ def historical_statistics_page(
 <p>{_range_links()}</p>
 {_range_form("/web/statistics", resolution, start, end)}
 <div class="cards">{cards}</div></section>
+{_chart("TLS ratio trend", protocol["rows"], "tls_ratio", percent=True)}
+{_chart("Propagation presence trend", propagation["rows"], "presence_ratio", percent=True)}
+{_chart("Topology incident trend", topology["rows"], "incident_started_count")}
 {_table("Group / hierarchy rollups", group["rows"], ("bucket_start", "server_id", "inventory_count", "observed_group_count", "observed_hierarchy_count", "event_count"))}
 {_table("Protocol / TLS rollups", protocol["rows"], ("bucket_start", "server_id", "observation_count", "tls_enabled_count", "tls_ratio", "capability_entry_count"))}
 {_table("Propagation rollups", propagation["rows"], ("bucket_start", "server_id", "probe_count", "present_count", "absent_count", "presence_ratio", "incident_started_count"))}
@@ -204,6 +252,8 @@ def server_history_page(
 <p><a href="/web/statistics">← Overview</a> &nbsp; {_range_links(path)}</p>
 {_range_form(path, resolution, start, end)}
 <div class="cards">{cards}</div></section>
+{_chart("Availability trend", rows, "availability_ratio", percent=True)}
+{_chart("Connection latency trend", rows, "connect_ms_avg")}
 {_table("Availability and latency history", rows, ("bucket_start", "server_id", "host", "observation_count", "success_count", "failure_count", "availability_ratio", "connect_ms_count", "connect_ms_avg", "connect_ms_min", "connect_ms_max"))}
 """
     return _page(f"Server {server_id} history", body)
