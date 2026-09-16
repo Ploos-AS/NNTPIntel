@@ -4,6 +4,7 @@ import datetime
 from dataclasses import dataclass
 from decimal import Decimal
 
+from nntpintel.statistics_query_policy import enforce_public_query_cost
 from nntpintel.storage_backend import StorageBackend
 
 _ALLOWED_RESOLUTIONS = {"hour", "day", "month"}
@@ -32,10 +33,7 @@ def _json_value(value: object) -> object:
 
 
 def _json_rows(rows: list[object]) -> list[dict]:
-    return [
-        {key: _json_value(value) for key, value in dict(row).items()}
-        for row in rows
-    ]
+    return [{key: _json_value(value) for key, value in dict(row).items()} for row in rows]
 
 
 def parse_statistics_time(value: str) -> datetime.datetime:
@@ -58,10 +56,12 @@ def validate_statistics_range(
     if (start is None) != (end is None):
         raise ValueError("start and end must be supplied together")
     if start is None:
+        enforce_public_query_cost(resolution=resolution, start=None, end=None)
         return StatisticsRange(resolution=resolution)
     start_utc = _utc(start); end_utc = _utc(end)
     if end_utc <= start_utc:
         raise ValueError("end must be after start")
+    enforce_public_query_cost(resolution=resolution, start=start_utc, end=end_utc)
     return StatisticsRange(resolution=resolution, start=start_utc, end=end_utc)
 
 
