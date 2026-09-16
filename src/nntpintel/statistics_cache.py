@@ -5,13 +5,13 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Generic, TypeVar, cast
 
 T = TypeVar("T")
 
 
 @dataclass(frozen=True)
-class CacheEntry[T]:
+class CacheEntry(Generic[T]):
     value: T
     expires_at: float
 
@@ -45,7 +45,7 @@ class StatisticsCache:
         with self._lock:
             entry = self._entries.get(key)
             if entry is not None and entry.expires_at > now:
-                return entry.value, True  # type: ignore[return-value]
+                return cast(T, entry.value), True
             if entry is not None:
                 self._entries.pop(key, None)
 
