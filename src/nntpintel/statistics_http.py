@@ -21,6 +21,7 @@ from nntpintel.statistics_api import (
 )
 from nntpintel.statistics_cache import StatisticsCache
 from nntpintel.statistics_drilldown import server_observation_drilldown
+from nntpintel.statistics_freshness import rollup_freshness_token
 from nntpintel.statistics_web import (
     historical_statistics_page,
     resolve_web_range,
@@ -30,11 +31,11 @@ from nntpintel.storage_backend import StorageBackend, open_storage
 from nntpintel.topology_history_web import topology_history_page
 
 _ROUTES = {
-    "/api/v1/statistics/servers": server_statistics_request,
-    "/api/v1/statistics/groups": group_statistics_request,
-    "/api/v1/statistics/protocol": protocol_statistics_request,
-    "/api/v1/statistics/propagation": propagation_statistics_request,
-    "/api/v1/statistics/topology": topology_statistics_request,
+    "/api/v1/statistics/servers": ("servers", server_statistics_request),
+    "/api/v1/statistics/groups": ("groups", group_statistics_request),
+    "/api/v1/statistics/protocol": ("protocol", protocol_statistics_request),
+    "/api/v1/statistics/propagation": ("propagation", propagation_statistics_request),
+    "/api/v1/statistics/topology": ("topology", topology_statistics_request),
 }
 _SERVER_HISTORY = re.compile(r"^/web/statistics/server/(\d+)$")
 _SERVER_DRILLDOWN = re.compile(r"^/api/v1/statistics/server/(\d+)/observations$")
@@ -226,11 +227,14 @@ class StatisticsHTTPHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE); return
             self._send_html(html); return
 
-        request = _ROUTES.get(parsed.path)
-        if request is None:
+        route = _ROUTES.get(parsed.path)
+        if route is None:
             self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND); return
-        cache_key = self.statistics_cache.key("json", _canonical_request(parsed.path, params))
+        family, request = route
         try:
+            freshness = rollup_freshness_token(self.storage, family)
+            canonical = _canonical_request(parsed.path, params)
+            cache_key = self.statistics_cache.key("json", f"{canonical}|freshness={freshness}")
             payload, cache_hit = self.statistics_cache.get_or_compute(
                 cache_key, lambda: request(self.storage, params)
             )
