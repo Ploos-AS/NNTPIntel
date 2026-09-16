@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -43,10 +43,10 @@ class _Storage:
 
 def test_freshness_token_changes_with_generated_at():
     first = rollup_freshness_token(
-        _Storage([datetime(2026, 9, 16, 8, tzinfo=timezone.utc)]), "servers"
+        _Storage([datetime(2026, 9, 16, 8, tzinfo=UTC)]), "servers"
     )
     second = rollup_freshness_token(
-        _Storage([datetime(2026, 9, 16, 9, tzinfo=timezone.utc)]), "servers"
+        _Storage([datetime(2026, 9, 16, 9, tzinfo=UTC)]), "servers"
     )
     assert first != second
     assert "2026-09-16T08:00:00Z" in first
