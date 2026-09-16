@@ -6,7 +6,7 @@ import os
 import re
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from nntpintel.group_history_web import group_history_page
 from nntpintel.propagation_history_web import propagation_history_page
@@ -19,6 +19,7 @@ from nntpintel.statistics_api import (
     server_statistics_request,
     topology_statistics_request,
 )
+from nntpintel.statistics_cache import StatisticsCache
 from nntpintel.statistics_drilldown import server_observation_drilldown
 from nntpintel.statistics_web import (
     historical_statistics_page,
@@ -42,14 +43,30 @@ _PROTOCOL_HISTORY = re.compile(r"^/web/statistics/server/(\d+)/protocol$")
 _PROPAGATION_HISTORY = re.compile(r"^/web/statistics/server/(\d+)/propagation$")
 
 
+def _canonical_request(path: str, params: dict[str, list[str]]) -> str:
+    pairs = sorted((key, value) for key, values in params.items() for value in values)
+    query = urlencode(pairs)
+    return f"{path}?{query}" if query else path
+
+
 class StatisticsHTTPHandler(BaseHTTPRequestHandler):
     storage: StorageBackend
+    statistics_cache: StatisticsCache
 
-    def _send_json(self, payload: object, status: HTTPStatus = HTTPStatus.OK) -> None:
+    def _send_json(
+        self,
+        payload: object,
+        status: HTTPStatus = HTTPStatus.OK,
+        *,
+        cache_status: str | None = None,
+    ) -> None:
         body = json.dumps(payload, sort_keys=True).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        if cache_status is not None:
+            self.send_header("X-NNTPIntel-Cache", cache_status)
+            self.send_header("Cache-Control", "public, max-age=30")
         self.end_headers()
         self.wfile.write(body)
 
@@ -212,20 +229,27 @@ class StatisticsHTTPHandler(BaseHTTPRequestHandler):
         request = _ROUTES.get(parsed.path)
         if request is None:
             self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND); return
+        cache_key = self.statistics_cache.key("json", _canonical_request(parsed.path, params))
         try:
-            payload = request(self.storage, params)
+            payload, cache_hit = self.statistics_cache.get_or_compute(
+                cache_key, lambda: request(self.storage, params)
+            )
         except ValueError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST); return
         except RuntimeError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE); return
-        self._send_json(payload)
+        self._send_json(payload, cache_status="HIT" if cache_hit else "MISS")
 
     def log_message(self, format: str, *args: object) -> None:
         return
 
 
 def make_statistics_server(storage: StorageBackend, host: str = "127.0.0.1", port: int = 8080) -> ThreadingHTTPServer:
-    handler = type("NNTPIntelStatisticsHTTPHandler", (StatisticsHTTPHandler,), {"storage": storage})
+    handler = type(
+        "NNTPIntelStatisticsHTTPHandler",
+        (StatisticsHTTPHandler,),
+        {"storage": storage, "statistics_cache": StatisticsCache()},
+    )
     return ThreadingHTTPServer((host, port), handler)
 
 
